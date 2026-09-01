@@ -1,0 +1,13 @@
+# Netlify and Cloudflare Pages read this file; GitHub Pages ignores it.
+# The same policy the build injects as a meta tag, but as real headers, which
+# is stricter — a meta tag cannot express frame-ancestors and arrives after the
+# parser has already started.
+/*
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' blob:; worker-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  Referrer-Policy: no-referrer
+  X-Content-Type-Options: nosniff
+  Cross-Origin-Opener-Policy: same-origin
+
+# Hashed assets never change under the same name, so they can be cached hard.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

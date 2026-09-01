@@ -1,0 +1,56 @@
+# Publishes the web build to GitHub Pages on every push to main.
+#
+# The build is entirely static — no server, no database, no secrets — so this
+# workflow needs no configuration beyond switching Pages to "GitHub Actions" in
+# the repository settings once.
+name: Deploy the web version
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer push supersedes an in-flight one rather
+# than queueing behind it.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # The web build has no use for Electron's 100 MB runtime, and
+      # downloading it on every push is the slowest and flakiest part of the
+      # install.
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      # The site is only published if the mathematics still passes, which is
+      # the whole point of having the tests.
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build:web
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

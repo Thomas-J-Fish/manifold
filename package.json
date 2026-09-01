@@ -1,0 +1,113 @@
+{
+  "name": "manifold",
+  "productName": "Manifold",
+  "version": "1.0.0",
+  "description": "A desktop graphing calculator, mathematics workbench and simulation studio. Local-first, offline, open source.",
+  "main": "out/main/main.js",
+  "license": "MIT",
+  "author": "Manifold contributors",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build:renderer": "vite build",
+    "build:main": "tsc -p tsconfig.electron.json",
+    "build": "npm run build:main && npm run build:renderer",
+    "start": "npm run build && electron .",
+    "electron": "electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke": "node tools/smoke.js",
+    "verify": "npm run typecheck && npm test && npm run build && npm run smoke",
+    "make-app": "npm run build && node tools/make-app.js",
+    "icon": "python3 build/make-icon.py",
+    "fix-electron": "node node_modules/electron/install.js",
+    "clean": "rm -rf out dist dist-app",
+    "build:web": "vite build --mode web",
+    "preview:web": "vite build --mode web && npx --yes serve -s out/web -l 4173",
+    "smoke:web": "node tools/web-smoke.js"
+  },
+  "dependencies": {
+    "katex": "^0.18.4",
+    "mathjs": "^15.2.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "three": "^0.185.1",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@types/three": "^0.185.4",
+    "@vitejs/plugin-react": "^6.1.0",
+    "autoprefixer": "^10.5.4",
+    "electron": "^38.8.6",
+    "playwright": "^1.62.1",
+    "postcss": "^8.5.26",
+    "tailwindcss": "^3.4.19",
+    "typescript": "~5.9.0",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
+  },
+  "build": {
+    "appId": "org.manifold.app",
+    "productName": "Manifold",
+    "copyright": "MIT licence. Manifold contributors.",
+    "files": [
+      "out/**/*",
+      "package.json",
+      "build/icon.png",
+      "LICENSE",
+      "!node_modules/**/*"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "mac": {
+      "category": "public.app-category.education",
+      "icon": "build/manifold.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "extendInfo": {
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "Manifold Project",
+            "CFBundleTypeRole": "Editor",
+            "LSHandlerRank": "Owner",
+            "CFBundleTypeExtensions": [
+              "manifold"
+            ]
+          }
+        ]
+      }
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Education",
+      "target": [
+        "AppImage"
+      ]
+    }
+  }
+}

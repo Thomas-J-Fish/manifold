@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>Manifold</title>
+    <meta
+      name="description"
+      content="A graphing calculator, mathematics workbench and simulation studio. Plot functions, explore distributions, build mechanics experiments and wire up circuits — in the browser, with nothing to install and no account."
+    />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#11141b" />
+
+    <!-- Open Graph, so a link pasted into a message shows what it is. -->
+    <meta property="og:title" content="Manifold" />
+    <meta property="og:description" content="Graphing, statistics, linear algebra, mechanics and circuits in one browser tab." />
+    <meta property="og:type" content="website" />
+  </head>
+  <body class="bg-surface-0 text-ink antialiased">
+    <div id="root"></div>
+    <noscript>
+      <p style="padding: 2rem; font-family: system-ui; color: #e6e9f2">
+        Manifold does all of its mathematics in your browser, so it needs JavaScript switched on.
+      </p>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

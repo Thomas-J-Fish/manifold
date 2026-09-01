@@ -1,0 +1,18 @@
+{
+  "name": "Manifold",
+  "short_name": "Manifold",
+  "description": "A graphing calculator, mathematics workbench and simulation studio.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#11141b",
+  "theme_color": "#11141b",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
