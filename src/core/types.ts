@@ -162,6 +162,26 @@ export type ExpressionKind =
   | 'points'
   | 'definition';
 
+/* The variables each kind of expression has bound for it during evaluation.
+ *
+ * A polar curve accepts three spellings of one angle, because a student types
+ * whichever their keyboard offers and all three mean the same thing. This list
+ * is the single source of truth for two things that have to agree: what the
+ * sampler writes the sample value into, and what the sidebar treats as already
+ * defined. When those two disagree, an expression naming a variable that
+ * nothing binds does not fail — it reads zero and draws a confident, wrong
+ * picture, which is far worse than an error message.
+ */
+export const BOUND_VARIABLES: Record<ExpressionKind, readonly string[]> = {
+  function: ['x'],
+  parametric: ['t'],
+  polar: ['θ', 'theta', 't'],
+  implicit: ['x', 'y'],
+  inequality: ['x', 'y'],
+  points: [],
+  definition: [],
+};
+
 export type LineStyle = 'solid' | 'dashed' | 'dotted';
 
 export interface ExpressionItem {

@@ -137,6 +137,34 @@ export class EvalScope {
     }
   }
 
+  /**
+   * A one-variable expression whose variable may be spelled several ways.
+   *
+   * The obvious alternative — compile against one name and fall back to
+   * another if that fails — does not work, and failed silently for polar
+   * curves. An unrecognised name is not a compile error here: it is given a
+   * slot of its own, so `2(1 + cos(theta))` compiled against θ succeeds,
+   * reads `theta` as zero, and plots a circle of radius 4 instead of a
+   * cardioid. Writing the sample value into every accepted spelling removes
+   * the possibility.
+   */
+  compileAliased(source: string, names: readonly string[]): CompiledFn1 {
+    try {
+      const slots = names.map((n) => this.slots.slot(n));
+      const ev = this.build(source);
+      const frame = this.frame;
+      return {
+        fn: (x: number) => {
+          for (let i = 0; i < slots.length; i += 1) frame[slots[i]] = x;
+          return ev(frame);
+        },
+        error: null,
+      };
+    } catch (err) {
+      return { fn: FAILED_1, error: messageOf(err) };
+    }
+  }
+
   compile2(source: string, v1: string, v2: string): CompiledFn2 {
     try {
       const s1 = this.slots.slot(v1);

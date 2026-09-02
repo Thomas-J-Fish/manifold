@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../../core/store';
-import { FUNCTIONS } from '../../core/math/functions';
-import { freeSymbols, parseExpression } from '../../core/math/compile';
-import type { ExpressionItem, ExpressionKind, Parameter } from '../../core/types';
+import { unboundSymbols } from '../../modes/graphing';
+import { BOUND_VARIABLES, type ExpressionItem, type ExpressionKind, type Parameter } from '../../core/types';
 import { SERIES_COLOURS } from '../../core/types';
 import { analyseExpression, MathField } from '../inputs/MathField';
 import { Collapsible, IconButton, NumberField, Row, Select, Toggle } from '../ui/controls';
@@ -32,10 +31,12 @@ export function ExpressionPanel({
   const addExpression = useStore((s) => s.addExpression);
   const syncParameters = useStore((s) => s.syncParameters);
 
-  /* Every symbol the scope can already resolve. Anything outside this set is
-   * reported as unbound and offered as a one-click slider. */
+  /* Every symbol the scope can resolve for any expression: the clock, the
+   * sliders, and the names of definitions. The plot variables are deliberately
+   * absent, because whether `t` or `θ` means anything depends on the kind of
+   * expression it appears in — see `missing` below. */
   const known = useMemo(() => {
-    const set = new Set<string>(['x', 'y', 't', 'θ', 'theta', 'time', 'n']);
+    const set = new Set<string>(['time']);
     for (const p of parameters) set.add(p.name);
     for (const e of expressions) {
       if (e.kind !== 'definition') continue;
@@ -45,23 +46,11 @@ export function ExpressionPanel({
     return set;
   }, [parameters, expressions]);
 
-  const missing = useMemo(() => {
-    const found = new Set<string>();
-    for (const e of expressions) {
-      if (!e.visible || e.kind === 'definition') continue;
-      for (const source of [e.source, e.source2]) {
-        if (!source.trim()) continue;
-        try {
-          for (const s of freeSymbols(parseExpression(source))) {
-            if (!known.has(s) && !(s in FUNCTIONS)) found.add(s);
-          }
-        } catch {
-          /* an unparseable expression contributes no symbols */
-        }
-      }
-    }
-    return [...found].sort();
-  }, [expressions, known]);
+  /* Unbound symbols, offered as one-click sliders. The rule lives in
+   * graphing.ts, where it is tested; treating every plot variable as
+   * always-defined used to mean `y = θ` raised nothing and quietly evaluated
+   * θ as zero. */
+  const missing = useMemo(() => unboundSymbols(expressions, known), [expressions, known]);
 
   return (
     <Collapsible
@@ -137,6 +126,16 @@ function ExpressionRow({
   const remove = useStore((s) => s.removeExpression);
   const [open, setOpen] = useState(false);
 
+  /* What this row may refer to: everything the scope defines globally, plus
+   * the variables its own kind binds. `x` is defined in a function of x and
+   * nowhere else; the polar angle is defined in a polar curve and nowhere
+   * else. Sharing one set across every kind is what let `r = 2(1+cos(theta))`
+   * pass without comment and plot a circle. */
+  const resolvable = useMemo(
+    () => new Set([...known, ...BOUND_VARIABLES[expression.kind]]),
+    [known, expression.kind],
+  );
+
   const status = useMemo(() => {
     if (expression.kind === 'definition') {
       return {
@@ -147,8 +146,8 @@ function ExpressionRow({
         symbols: [],
       };
     }
-    return analyseExpression(expression.source, known);
-  }, [expression.source, expression.kind, known, definitionError]);
+    return analyseExpression(expression.source, resolvable);
+  }, [expression.source, expression.kind, resolvable, definitionError]);
 
   const isParametric = expression.kind === 'parametric';
   const prefix = PREFIX_BY_KIND.get(expression.kind) ?? '';
@@ -203,7 +202,7 @@ function ExpressionRow({
             onChange={(source2) => update(expression.id, { source2 })}
             prefix="y(t) ="
             placeholder="sin(t)"
-            status={analyseExpression(expression.source2, known)}
+            status={analyseExpression(expression.source2, resolvable)}
           />
         </div>
       )}

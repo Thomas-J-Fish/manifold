@@ -4,10 +4,12 @@
  * — as a pure function of (expressions, parameters, viewport) → layers.
  */
 
+import { freeSymbols, parseExpression } from '../core/math/compile';
+import { FUNCTIONS } from '../core/math/functions';
 import { derivative, findExtrema, findRoots, integrate } from '../core/math/numeric';
 import { marchingSquares, sampleFunction, sampleParametric, type Viewport as SampleView } from '../core/math/sampling';
 import type { EvalScope } from '../core/math/scope';
-import type { ExpressionItem } from '../core/types';
+import { BOUND_VARIABLES, type ExpressionItem } from '../core/types';
 import type { Layer } from '../plot/scene';
 import { withAlpha } from '../plot/scene';
 
@@ -123,16 +125,15 @@ export function buildGraphScene(opts: BuildOptions): GraphResult {
       }
 
       case 'polar': {
-        const { fn, error } = scope.compile1(expr.source, 'θ');
-        const alt = error ? scope.compile1(expr.source, 'theta') : null;
-        const radial = error ? alt?.fn : fn;
-        if (!radial || (error && alt?.error)) {
-          errors.push({ id: expr.id, message: error ?? 'Invalid polar curve' });
+        // θ, `theta` and `t` all name the angle; see BOUND_VARIABLES.
+        const { fn: radial, error } = scope.compileAliased(expr.source, BOUND_VARIABLES.polar);
+        if (error) {
+          errors.push({ id: expr.id, message: error });
           return;
         }
         const segments = sampleParametric(
-          (t) => radial(t) * Math.cos(t),
-          (t) => radial(t) * Math.sin(t),
+          (a) => radial(a) * Math.cos(a),
+          (a) => radial(a) * Math.sin(a),
           expr.tMin,
           expr.tMax,
           view,
@@ -225,6 +226,37 @@ function hexToRgb(hex: string): [number, number, number] {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim());
   if (!m) return [139, 124, 246];
   return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+}
+
+/**
+ * Symbols an expression list needs that nothing will bind for it.
+ *
+ * `defined` holds what the scope can supply everywhere — the clock, the
+ * sliders, the names of definitions. Everything else depends on the kind of
+ * expression the symbol appears in: `t` is the curve parameter in a parametric
+ * plot and means nothing in a function of x. Anything left over is offered to
+ * the user as a slider, which is the only honest thing to do with a name the
+ * evaluator would otherwise read as zero.
+ */
+export function unboundSymbols(expressions: ExpressionItem[], defined: Set<string>): string[] {
+  const found = new Set<string>();
+  for (const e of expressions) {
+    if (!e.visible || e.kind === 'definition') continue;
+    const bound = BOUND_VARIABLES[e.kind];
+    for (const source of [e.source, e.source2]) {
+      if (!source.trim()) continue;
+      try {
+        for (const symbol of freeSymbols(parseExpression(source))) {
+          if (!defined.has(symbol) && !bound.includes(symbol) && !(symbol in FUNCTIONS)) {
+            found.add(symbol);
+          }
+        }
+      } catch {
+        /* an unparseable expression contributes no symbols */
+      }
+    }
+  }
+  return [...found].sort();
 }
 
 /** Reads "x,y" pairs separated by newlines or semicolons. */
