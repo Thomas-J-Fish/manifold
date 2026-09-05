@@ -1,6 +1,6 @@
 # Manifold
 
-**[Open it in your browser →](https://USERNAME.github.io/manifold/)** — nothing
+**[Open it in your browser →](https://thomas-j-fish.github.io/manifold/)** — nothing
 to install, no account, works on a Chromebook.
 
 A graphing calculator, mathematics workbench and simulation studio, as a
