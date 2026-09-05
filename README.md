@@ -1,6 +1,6 @@
 # Manifold
 
-**[Open it in your browser →](https://thomas-j-fish.github.io/manifold/)** — nothing
+**[Open it in your browser →](https://USERNAME.github.io/manifold/)** — nothing
 to install, no account, works on a Chromebook.
 
 A graphing calculator, mathematics workbench and simulation studio, as a
@@ -147,7 +147,7 @@ sweeps, the matrix interpolation, particle advection, PDE playback, the Riemann
 subdivision count and the Taylor order — everything animatable in the tab moves
 against the same timeline.
 
-### The ten modes
+### The twelve modes
 
 | | |
 |---|---|
@@ -160,11 +160,14 @@ against the same timeline.
 | **Vector Fields & PDEs** | Arrow grids, streamlines and animated particle advection over any field you type, with divergence, curl and magnitude available as a background. The heat and wave equations on a line, solved by finite differences with automatic CFL substepping and played back over time. |
 | **Data & Regression** | Import or paste a CSV. Fit a line, a polynomial to degree 10, or one of six nonlinear families by Levenberg–Marquardt. Standard errors, p-values, R², adjusted R², RMSE, AIC, BIC, a delta-method confidence band and a residual panel. |
 | **Mechanics Sandbox** | Build an experiment from masses, anchors, rigid rods, ropes, springs, ramps and pulleys, then run it. Constraints are solved with Lagrange multipliers, so the tension in a rod and the normal force under a block are exact readouts rather than estimates. Record any quantity live — angle from vertical, extension, tension, normal and friction force, energies — and read the governing equation beside the chart. |
-| **Electronics Sandbox** | Wire up cells, resistors, bulbs, switches, capacitors, inductors, diodes, LEDs, fuses, thermistors and meters on a grid. Solved by modified nodal analysis with companion models for the reactive parts and Newton–Raphson for the junctions — the same method SPICE uses. Watch the current flow, colour the wires by potential, and plot any voltage, current, power or charge against time. |
+| **Electronics Sandbox** | Wire up cells, resistors, bulbs, switches, capacitors, inductors, diodes, LEDs, fuses, thermistors and meters on a grid. Solved by modified nodal analysis with companion models for the reactive parts and Newton–Raphson for the junctions — the same method SPICE uses. Watch the charge flow round the loop — wires included, in either the conventional or the electron direction — colour the wires by potential, and plot any voltage, current, power or charge against time. |
+| **Quantum Mechanics** | Build a potential from wells, barriers, steps, parabolas and fields, or type V(x) yourself, and then solve it four ways. The energy ladder and its wavefunctions, by exact diagonalisation of the tridiagonal Hamiltonian. A Gaussian wavepacket propagated by Crank–Nicolson, which is unitary, so probability is conserved to rounding rather than leaking. Transmission against energy by transfer matrix, drawn against the closed form where one exists. And the two-dimensional problem — a box, a circular well, a trap — where degeneracy comes from. |
+| **Periodic Table** | All 118 elements, shaded by any property: radius, electronegativity, ionisation energy, melting point, density, year of discovery. Click one to open it up — the nucleus and its shells, or the actual hydrogen-like orbital the outermost electrons are filling, with its nodes. Full electron configurations, generated from the Aufbau order and the twenty elements that break it. |
 
-**Help → Load an Example** opens twenty-four worked examples in a new tab, from
+**Help → Load an Example** opens twenty-eight worked examples in a new tab, from
 Lissajous figures to the Heston model to the logistic map's route to chaos to a
-double pendulum that never repeats itself.
+double pendulum that never repeats itself to a wavepacket tunnelling through a
+barrier it does not have the energy to cross.
 
 #### The two sandboxes
 
@@ -204,6 +207,8 @@ knowing where a model stops is part of using it.
 | The route to chaos, with its Lyapunov exponent | Smooth-coloured escape times |
 | ![Mechanics](docs/screenshots/mechanics.png) | ![Circuits](docs/screenshots/circuits.png) |
 | A pendulum, and where the small-angle formula fails | An RC circuit charging, beside τ = RC |
+| ![Quantum](docs/screenshots/quantum.png) | ![Chemistry](docs/screenshots/chemistry.png) |
+| A wavepacket split by a well it has just crossed | Carbon, opened up into its 2p orbital |
 
 ---
 
@@ -250,6 +255,24 @@ buffer, plus a second copy of the maths — it is cut into slices sized to a
 per-frame time budget that adapts to whatever the machine managed last frame.
 The picture appears progressively and the interface never stops responding.
 
+**Quantum problems are separated, not brute-forced.** The two-dimensional
+Schrödinger solver does not diagonalise the 3300×3300 grid Hamiltonian. Its
+low-lying levels sit within a thousandth of the spectral range, which is the
+regime where Krylov methods crawl — the first version used Lanczos and reported
+a ground state nearly twice the true one, with the degeneracies of a square box
+split by forty per cent. Every shape offered has a symmetry instead: a
+separable potential is two one-dimensional ladders whose energies add, and a
+circular well is one radial problem per angular momentum. Both reduce to the
+same tridiagonal eigensolver the 1D mode uses, exactly and in milliseconds, and
+degeneracies come out as degeneracies rather than as two nearly-equal numbers.
+
+**Element data is derived where it can be.** The measured properties are a
+table; the electron configurations are not. A configuration written out 118
+times has 118 chances to be wrong and no way to notice, so they are generated
+from the Aufbau order plus the twenty elements that break it — and then checked
+by arithmetic that cannot be fudged: the electrons have to add up to the atomic
+number, every time, and no subshell may hold more than it can.
+
 **Randomness is seeded.** Nothing calls `Math.random`. Every stochastic path
 comes from xoshiro128\*\* seeded by a string saved in the project file, so
 reopening a project and pressing play gives back the identical ensemble.
@@ -275,6 +298,15 @@ src/
       fields.ts        vector fields, streamlines, heat and wave equations
       fractals.ts      escape-time sets, orbit diagrams, Lyapunov exponents
       random.ts        seeded xoshiro128** and the variate generators
+    physics/
+      mechanics.ts     constrained rigid bodies by Lagrange multipliers
+      circuit.ts       modified nodal analysis, companion models, Newton
+      quantum.ts       tridiagonal eigenstates, Crank–Nicolson, transfer matrix
+      analytic.ts      recognises the textbook set-ups and names them
+      linsolve.ts      dense LU, used by every solver above
+    chemistry/
+      table.ts         118 elements of measured data, generated once
+      elements.ts      configurations, layout and hydrogen-like orbitals
     store.ts         the whole document, in one zustand store
     serialize.ts     the .manifold format, with forgiving migration
   plot/scene.ts      declarative 2D scene description and its canvas renderer
@@ -286,6 +318,8 @@ out/
 tools/
   make-app.js        wraps the build as a macOS .app bundle
   smoke.js           drives the real app through every mode and screenshots it
+  web-smoke.js       the same for the web build, over real HTTP in a browser
+  shot.js            one screenshot of one mode, for looking at
 tests/               numerical and document-format tests
 ```
 
@@ -294,9 +328,10 @@ tests/               numerical and document-format tests
 ```bash
 npm run dev          # Vite dev server on :5273
 npm start            # build, then launch Electron
-npm test             # 85 numerical, format and rendering tests
+npm test             # 260 numerical, format and rendering tests
 npm run typecheck    # both tsconfigs
 npm run smoke        # end-to-end: launches the app, drives every mode
+npm run smoke:web    # the same against the web build, in a real browser
 npm run make-app     # build the macOS bundle (macOS only)
 npm run clean        # remove out/, dist/ and dist-app/
 npm run icon         # regenerate the icons from build/make-icon.py
@@ -315,10 +350,6 @@ preload bridge is exposed, that the plot actually painted, that the stylesheet
 and maths fonts were found at their repackaged paths, and that `eval` genuinely
 throws, which is how the strict Content-Security-Policy is asserted rather than
 assumed. If any of them fail the build stops and says which.
-
-## Licence
-
-MIT. See [LICENSE](LICENSE).
 
 ---
 

@@ -5,3 +5,8 @@ dist-app/
 test-shots/
 *.log
 .DS_Store
+
+# macOS's custom-folder-icon file, whose name ends in a carriage return.
+# The '?' matches that character: writing it literally makes a line git reads
+# as CRLF and strips, and writing '\r' matches a backslash followed by an r.
+Icon?

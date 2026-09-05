@@ -155,6 +155,8 @@ function step(label) {
     ['fitting', 'Fitting', '08-fitting'],
     ['mechanics', 'Mechanics', '09-mechanics'],
     ['circuits', 'Circuits', '10-circuits'],
+    ['quantum', 'Quantum', '11-quantum'],
+    ['chemistry', 'Chemistry', '12-chemistry'],
   ];
 
   for (const [id, label, shot] of modes) {
@@ -294,7 +296,71 @@ function step(label) {
       resAmps ? `${resAmps[1]} ${resAmps[2]}A` : 'not shown',
     );
   }
-  await page.screenshot({ path: path.join(SHOT_DIR, '12-circuits-running.png') });
+  await page.screenshot({ path: path.join(SHOT_DIR, '14-circuits-running.png') });
+
+  step('Quantum mechanics');
+  await selectMode(page, 'quantum');
+  await page.waitForTimeout(1200);
+
+  {
+    /* The default is a 1 nm well 5 eV deep, which holds exactly four states —
+     * a number that follows from ⌈(a/π)√(2mV₀)/ħ⌉ and from nothing about this
+     * code. If the eigensolver, the unit system or the grid is wrong, this is
+     * wrong, and it is wrong in a way an image comparison would never catch. */
+    const text = await page.locator('body').innerText();
+    check('the well is recognised', /Finite square well/i.test(text), text.slice(0, 140));
+    check('it holds four bound states', /4 bound states/i.test(text), text.slice(0, 400));
+    const ground = /n = 1\s+(-?[\d.]+) eV/.exec(text);
+    check(
+      'the ground state is where the transcendental equation puts it',
+      ground && Math.abs(Number(ground[1]) + 4.7275) < 0.02,
+      ground ? `${ground[1]} eV` : 'not shown',
+    );
+
+    // A packet launched at a barrier has to actually go somewhere.
+    await page.click('[role="tab"]:has-text("Packet")');
+    await page.waitForTimeout(900);
+    await page.click('button[title="Play"]');
+    await page.waitForTimeout(3000);
+    await page.click('button[title="Pause"]');
+    const moving = await page.locator('body').innerText();
+    const meanX = /⟨x⟩\s+(-?[\d.]+) nm/.exec(moving);
+    check(
+      'the wavepacket has moved off its starting point',
+      meanX && Number(meanX[1]) > -3.5,
+      meanX ? `${meanX[1]} nm` : moving.slice(0, 200),
+    );
+    const norm = /Norm\s+([\d.]+)/.exec(moving);
+    check(
+      'and probability is conserved while it does',
+      norm && Number(norm[1]) > 0.98,
+      norm ? norm[1] : 'not shown',
+    );
+    check('no error boundary', !/could not start/i.test(moving));
+  }
+  await page.screenshot({ path: path.join(SHOT_DIR, '15-quantum-running.png') });
+
+  step('Periodic table');
+  await selectMode(page, 'chemistry');
+  await page.waitForTimeout(900);
+
+  {
+    await page.click('button[data-element="Fe"]');
+    await page.waitForTimeout(500);
+    const text = await page.locator('body').innerText();
+    check('clicking an element opens it', /Iron/.test(text), text.slice(0, 200));
+    check(
+      'with the configuration that breaks at chromium and copper',
+      /\[Ar\]\s*4s² 3d⁶/.test(text),
+      text.slice(0, 400),
+    );
+    await page.click('button[data-element="Cu"]');
+    await page.waitForTimeout(400);
+    const copper = await page.locator('body').innerText();
+    check('and copper really is 4s¹ 3d¹⁰', /4s¹ 3d¹⁰/.test(copper), copper.slice(0, 400));
+    check('no error boundary', !/could not start/i.test(copper));
+  }
+  await page.screenshot({ path: path.join(SHOT_DIR, '16-chemistry.png') });
 
   /* ---- the interface chrome actually works.
    *

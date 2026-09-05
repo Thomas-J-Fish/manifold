@@ -10,8 +10,10 @@ import type { CircuitElement, ElementKind as CircuitElementKind } from './physic
 import type { Body as MechBody, Link as MechLink } from './physics/mechanics';
 import {
   type CalculusConfig,
+  type ChemistryConfig,
   type CircuitConfig,
   type MechanicsConfig,
+  type QuantumConfig,
   type DynamicsConfig,
   type ExpressionItem,
   type ExpressionKind,
@@ -369,6 +371,7 @@ export function defaultCircuits(): CircuitConfig {
     orientation: 'h',
     selectedId: null,
     showCurrent: true,
+    flowMode: 'conventional',
     showNodeVoltages: true,
     showValues: true,
     showEquations: true,
@@ -387,6 +390,52 @@ export function makeParameter(name: string, value = 1): Parameter {
     animated: false,
     period: 6,
     animationMode: 'loop',
+  };
+}
+
+export function defaultQuantum(): QuantumConfig {
+  return {
+    world: {
+      view: 'bound',
+      // A well 1 nm across and 5 eV deep holds four states — enough for the
+      // ladder to be a ladder, few enough to count off the screen.
+      // Wide enough that a wavepacket has somewhere to start and somewhere to
+      // arrive: a packet launched outside the box is not a wavepacket, it is a
+      // sliver of one clipped by the wall.
+      xMin: -6,
+      xMax: 6,
+      points: 600,
+      mass: 1,
+      features: [{ id: 'f1', kind: 'well', centre: 0, width: 1, height: 5 }],
+      expression: '',
+      levels: 6,
+      packet: { centre: -4, width: 0.5, momentum: 10 },
+      duration: 20,
+      absorbing: true,
+      scatterMin: 0.05,
+      scatterMax: 8,
+      plane: { shape: 'box', size: 1, depth: 200, aspect: 1, points: 90, levels: 6 },
+    },
+    selectedId: 'f1',
+    tool: 'select',
+    level: 0,
+    probability: false,
+    stacked: true,
+    showEquations: true,
+    scale: 1,
+  };
+}
+
+export function defaultChemistry(): ChemistryConfig {
+  return {
+    // Carbon: four bonds, a familiar shell picture, and the middle of a period.
+    selected: 6,
+    colourBy: 'category',
+    plotProperty: 'electronegativity',
+    atomView: 'shells',
+    orbital: '',
+    showTrend: true,
+    animate: true,
   };
 }
 
@@ -438,6 +487,10 @@ const VIEWPORT_BY_MODE: Record<TabMode, Viewport> = {
   // frame.
   mechanics: { xMin: -2.6, xMax: 2.6, yMin: -1.9, yMax: 3.9 },
   circuits: { xMin: -0.9, xMax: 4.9, yMin: -2.4, yMax: 1.4 },
+  // Nanometres across, electronvolts up: the axes of the potential itself.
+  quantum: { xMin: -3.2, xMax: 3.2, yMin: -6, yMax: 4 },
+  // The periodic table draws itself; this is only a first frame.
+  chemistry: { xMin: 0, xMax: 19, yMin: -11, yMax: 1 },
 };
 
 export function defaultViewport(mode: TabMode): Viewport {
@@ -480,6 +533,8 @@ export function makeTab(mode: TabMode = 'graphing', name?: string): TabState {
     fitting: defaultFitting(),
     mechanics: defaultMechanics(),
     circuits: defaultCircuits(),
+    quantum: defaultQuantum(),
+    chemistry: defaultChemistry(),
   };
 }
 
@@ -494,6 +549,8 @@ const NAME_BY_MODE: Record<TabMode, string> = {
   fitting: 'Data',
   mechanics: 'Bench',
   circuits: 'Circuit',
+  quantum: 'Well',
+  chemistry: 'Elements',
 };
 
 export function defaultTabName(mode: TabMode): string {

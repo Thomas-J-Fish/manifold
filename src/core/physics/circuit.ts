@@ -320,6 +320,10 @@ class UnionFind {
 export interface Netlist {
   /** Elements that take part in the solve, wires and grounds excluded. */
   active: CircuitElement[];
+  /** Zero-resistance segments — wires, and switches that are closed. The
+   * solve collapses these into nodes and so knows nothing about the current
+   * in them; `wireFlow` recovers it for the animation. */
+  wires: CircuitElement[];
   /** Node index per element terminal; −1 is the reference node. */
   nodeA: Int32Array;
   nodeB: Int32Array;
@@ -348,6 +352,7 @@ export function buildNetlist(world: CircuitWorld): Netlist {
   const uf = new UnionFind();
 
   const active: CircuitElement[] = [];
+  const wires: CircuitElement[] = [];
   const grounds: CircuitElement[] = [];
   for (const e of world.elements) {
     const [a, b] = terminals(e);
@@ -358,6 +363,7 @@ export function buildNetlist(world: CircuitWorld): Netlist {
     }
     if (e.kind === 'wire') {
       uf.union(key(a[0], a[1]), key(b[0], b[1]));
+      wires.push(e);
       continue;
     }
     // A closed switch is a short. Treating it as a 1 mΩ resistor instead would
@@ -366,6 +372,7 @@ export function buildNetlist(world: CircuitWorld): Netlist {
     // colouring rather than as a millivolt gradient.
     if (e.kind === 'switch' && e.values.closed >= 0.5) {
       uf.union(key(a[0], a[1]), key(b[0], b[1]));
+      wires.push(e);
       continue;
     }
     uf.find(key(a[0], a[1]));
@@ -434,7 +441,7 @@ export function buildNetlist(world: CircuitWorld): Netlist {
     if (active.length) warnings.push('There is no source, so every voltage will be zero.');
   }
 
-  return { active, nodeA, nodeB, nodeCount, nodeOfPoint, problems, warnings };
+  return { active, wires, nodeA, nodeB, nodeCount, nodeOfPoint, problems, warnings };
 }
 
 // ------------------------------------------------------------------ device models
@@ -508,6 +515,107 @@ export function sourceVoltage(e: CircuitElement, t: number): number {
     default:
       return 0;
   }
+}
+
+/**
+ * Current in each wire, which the matrix never solves for.
+ *
+ * Wires are collapsed into nodes before the solve, so the solver knows the
+ * current through every component and nothing whatever about the copper
+ * between them. That is fine for the numbers and wrong for the picture: the
+ * flow dots stopped dead at each component and reappeared at the next one,
+ * which reads as charge piling up in the wires.
+ *
+ * So every wire segment gets an unknown, Kirchhoff's current law is imposed at
+ * every point the wires touch, and the smallest solution satisfying it is
+ * taken. Where the answer is determined — a series loop, one branch of a
+ * parallel pair — that *is* the physical answer. Where it is not, because two
+ * ideal wires run side by side, the minimum-norm solution splits the current
+ * evenly and adds no circulating loop current, which is the only defensible
+ * choice for conductors with no resistance to tell them apart.
+ *
+ * The map from component values to wire values is linear, so feeding it
+ * accumulated charge rather than current returns accumulated charge in the
+ * wires — which is what the animation actually needs.
+ */
+export function wireFlow(netlist: Netlist, elementValues: ArrayLike<number>): Float64Array {
+  const wires = netlist.wires;
+  const out = new Float64Array(wires.length);
+  if (!wires.length) return out;
+
+  const rowOf = new Map<string, number>();
+  const rowFor = (x: number, y: number): number => {
+    const k = key(x, y);
+    let r = rowOf.get(k);
+    if (r === undefined) {
+      r = rowOf.size;
+      rowOf.set(k, r);
+    }
+    return r;
+  };
+  const ends = wires.map((w) => {
+    const [a, b] = terminals(w);
+    return { u: rowFor(a[0], a[1]), v: rowFor(b[0], b[1]) };
+  });
+  const p = rowOf.size;
+
+  // What the components push into each of those points. Positive means
+  // flowing a → b inside the component: out of the node at a, into b.
+  const inject = new Float64Array(p);
+  netlist.active.forEach((e, i) => {
+    const value = elementValues[i] ?? 0;
+    if (!Number.isFinite(value)) return;
+    const [a, b] = terminals(e);
+    const ra = rowOf.get(key(a[0], a[1]));
+    const rb = rowOf.get(key(b[0], b[1]));
+    if (ra !== undefined) inject[ra] -= value;
+    if (rb !== undefined) inject[rb] += value;
+  });
+
+  /* A x = −inject with A the incidence matrix of the wire graph, solved as
+   * x = Aᵀ(AAᵀ + λI)⁻¹(−inject), the least-norm solution. The ridge term
+   * covers the null space AAᵀ has whenever a group of points is cut off from
+   * the rest. Kirchhoff guarantees the right-hand side has no component along
+   * that null space — the net current into a disconnected island is zero — so
+   * the ridge only has to keep the factorisation from being singular, and can
+   * be small enough to leave nine significant figures untouched. */
+  const solver = new DenseSolver(p);
+  solver.reset(p);
+  const rhs = new Float64Array(p);
+  for (let r = 0; r < p; r++) {
+    rhs[r] = -inject[r];
+    solver.add(p, r, r, 1e-12);
+  }
+  for (const { u, v } of ends) {
+    solver.add(p, u, u, 1);
+    solver.add(p, v, v, 1);
+    solver.add(p, u, v, -1);
+    solver.add(p, v, u, -1);
+  }
+  if (!solver.solveInPlace(p, rhs)) return out;
+  ends.forEach(({ u, v }, j) => {
+    out[j] = rhs[v] - rhs[u];
+  });
+  return out;
+}
+
+/**
+ * Where a flow dot sits along an element, in grid coordinates.
+ *
+ * `phase` runs 0 → 1 in the direction of positive current, and this is not the
+ * same as the direction the symbol is drawn in. A symbol always occupies the
+ * grid square from (x, y) to the next point along, whichever way round the
+ * component is; but current is defined between `terminals()`, which swaps the
+ * two ends for a reversed component. Placing the dots along the drawing axis
+ * instead — which is what this replaced — animated every reversed component
+ * backwards, so a battery turned round to put its positive terminal on the
+ * right showed charge flowing into that terminal from the circuit.
+ */
+export function flowPoint(e: CircuitElement, phase: number): [number, number] {
+  const [a, b] = terminals(e);
+  let s = phase % 1;
+  if (s < 0) s += 1;
+  return [a[0] + (b[0] - a[0]) * s, a[1] + (b[1] - a[1]) * s];
 }
 
 // ------------------------------------------------------------------ solver
@@ -872,7 +980,20 @@ export interface CircuitTrajectory {
   time: Float64Array;
   voltage: Float64Array;
   current: Float64Array;
+  /** ∫I dt through each element, from t = 0 to each stored sample.
+   *
+   * The flow animation needs *where the charge has got to*, not how fast it is
+   * moving now. Driving the dots from I(t)·t instead — which is what this
+   * replaced — makes them run backwards down a discharging RC circuit, because
+   * t·e^(−t/τ) turns over at t = τ while the current has not reversed at all. */
+  charge: Float64Array;
   nodeVoltage: Float64Array;
+  /** Largest |I| seen anywhere in the circuit over the whole run so far. A
+   * per-instant maximum would make every branch race at a zero crossing of an
+   * AC supply, where everything is small and their *ratio* is meaningless. */
+  peakCurrent: number;
+  /** Running ∫I dt, ahead of the last stored sample. */
+  accumulated: Float64Array;
   failed: boolean;
   failure: string | null;
   /** Live state, at `liveTime`. */
@@ -939,7 +1060,10 @@ export function createCircuitTrajectory(world: CircuitWorld, duration: number): 
     time: new Float64Array(cap),
     voltage: new Float64Array(cap * n),
     current: new Float64Array(cap * n),
+    charge: new Float64Array(cap * n),
     nodeVoltage: new Float64Array(cap * netlist.nodeCount),
+    peakCurrent: 0,
+    accumulated: new Float64Array(n),
     failed: netlist.problems.length > 0,
     failure: netlist.problems[0] ?? null,
     state,
@@ -965,6 +1089,9 @@ export function createCircuitTrajectory(world: CircuitWorld, duration: number): 
      */
     const first = solveInstant(asm, world, 0, h * 1e-6, traj.history, state, true);
     traj.state = first;
+    for (let i = 0; i < n; i++) {
+      traj.peakCurrent = Math.max(traj.peakCurrent, Math.abs(first.elementCurrent[i]));
+    }
     pushCircuit(traj, 0);
   }
   return traj;
@@ -982,6 +1109,7 @@ function growCircuit(traj: CircuitTrajectory): void {
   traj.time = next(traj.time, 1);
   traj.voltage = next(traj.voltage, n);
   traj.current = next(traj.current, n);
+  traj.charge = next(traj.charge, n);
   traj.nodeVoltage = next(traj.nodeVoltage, nn);
 }
 
@@ -994,6 +1122,7 @@ function pushCircuit(traj: CircuitTrajectory, t: number): void {
   if (n) {
     traj.voltage.set(traj.state.elementVoltage, k * n);
     traj.current.set(traj.state.elementCurrent, k * n);
+    traj.charge.set(traj.accumulated, k * n);
   }
   if (nn) traj.nodeVoltage.set(traj.state.nodeVoltage, k * nn);
   traj.count = k + 1;
@@ -1018,6 +1147,16 @@ export function advanceCircuit(traj: CircuitTrajectory, until: number, budget = 
       traj.failure =
         'The solver could not converge — check for a source shorted by a wire, or a component with an impossible value.';
       return true;
+    }
+    // Trapezoidal, to match the integrator the companion models use: over one
+    // step the current is taken as a straight line between its two endpoints.
+    const n = traj.netlist.active.length;
+    for (let i = 0; i < n; i++) {
+      const before = traj.history.current[i];
+      const after = next.elementCurrent[i];
+      traj.accumulated[i] += ((before + after) / 2) * traj.h;
+      const size = Math.abs(after);
+      if (size > traj.peakCurrent) traj.peakCurrent = size;
     }
     traj.state = next;
     traj.liveTime = t;

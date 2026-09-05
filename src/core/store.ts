@@ -27,6 +27,7 @@ import {
 } from './defaults';
 import type {
   CalculusConfig,
+  ChemistryConfig,
   CircuitConfig,
   DynamicsConfig,
   ExpressionItem,
@@ -38,6 +39,7 @@ import type {
   MonteCarloConfig,
   Parameter,
   ProjectFile,
+  QuantumConfig,
   StatisticsConfig,
   TabMode,
   TabState,
@@ -151,6 +153,8 @@ interface AppState {
   setFitting: (patch: Partial<FittingConfig>) => void;
   setMechanics: (patch: Partial<MechanicsConfig>) => void;
   setCircuits: (patch: Partial<CircuitConfig>) => void;
+  setQuantum: (patch: Partial<QuantumConfig>) => void;
+  setChemistry: (patch: Partial<ChemistryConfig>) => void;
 
   // --- chrome
   setSidebar: (patch: { width?: number; collapsed?: boolean }) => void;
@@ -618,6 +622,24 @@ export const useStore = create<AppState>((set, get) => ({
       project: replaceTab(s.project, s.project.activeTabId, (t) => ({
         ...t,
         circuits: { ...t.circuits, ...patch },
+      })),
+      dirty: true,
+    })),
+
+  setQuantum: (patch) =>
+    set((s) => ({
+      project: replaceTab(s.project, s.project.activeTabId, (t) => ({
+        ...t,
+        quantum: { ...t.quantum, ...patch },
+      })),
+      dirty: true,
+    })),
+
+  setChemistry: (patch) =>
+    set((s) => ({
+      project: replaceTab(s.project, s.project.activeTabId, (t) => ({
+        ...t,
+        chemistry: { ...t.chemistry, ...patch },
       })),
       dirty: true,
     })),

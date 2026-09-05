@@ -594,6 +594,102 @@ export const EXAMPLES: Example[] = [
       return tab;
     },
   },
+  {
+    id: 'double-well',
+    title: 'A double well, and the states that straddle it',
+    blurb:
+      'Two wells side by side. Each level of a single well splits into a symmetric and an antisymmetric pair — the whole of chemical bonding, in one picture.',
+    build: () => {
+      const tab = makeTab('quantum', 'Double well');
+      tab.quantum = {
+        ...tab.quantum,
+        world: {
+          ...tab.quantum.world,
+          view: 'bound',
+          xMin: -4,
+          xMax: 4,
+          points: 700,
+          levels: 6,
+          features: [
+            { id: 'l', kind: 'well', centre: -0.7, width: 0.8, height: 6 },
+            { id: 'r', kind: 'well', centre: 0.7, width: 0.8, height: 6 },
+          ],
+        },
+        selectedId: 'l',
+        level: 0,
+      };
+      tab.viewport = { xMin: -4, xMax: 4, yMin: -7, yMax: 3 };
+      return tab;
+    },
+  },
+  {
+    id: 'tunnelling',
+    title: 'Tunnelling through a barrier',
+    blurb:
+      'A wavepacket with less energy than the barrier in front of it. Most of it comes back; some of it does not. Press play.',
+    build: () => {
+      const tab = makeTab('quantum', 'Tunnelling');
+      tab.quantum = {
+        ...tab.quantum,
+        world: {
+          ...tab.quantum.world,
+          view: 'evolve',
+          xMin: -12,
+          xMax: 12,
+          points: 900,
+          features: [{ id: 'b', kind: 'barrier', centre: 0, width: 0.35, height: 5 }],
+          packet: { centre: -5, width: 1, momentum: 10 },
+          duration: 16,
+          absorbing: true,
+        },
+        selectedId: 'b',
+      };
+      tab.timeline = { ...tab.timeline, tMax: 16, playing: true };
+      return tab;
+    },
+  },
+  {
+    id: 'quantum-harmonic',
+    title: 'The harmonic oscillator ladder',
+    blurb:
+      'Evenly spaced levels, each half a quantum above the last, and a ground state that cannot sit still.',
+    build: () => {
+      const tab = makeTab('quantum', 'Oscillator');
+      tab.quantum = {
+        ...tab.quantum,
+        world: {
+          ...tab.quantum.world,
+          view: 'bound',
+          xMin: -6,
+          xMax: 6,
+          points: 700,
+          levels: 8,
+          features: [{ id: 'h', kind: 'harmonic', centre: 0, width: 4, height: 6 }],
+        },
+        selectedId: 'h',
+        stacked: true,
+      };
+      tab.viewport = { xMin: -6, xMax: 6, yMin: -0.5, yMax: 8 };
+      return tab;
+    },
+  },
+  {
+    id: 'periodic-trends',
+    title: 'Why the table is shaped the way it is',
+    blurb:
+      'The periodic table shaded by atomic radius, with the trend plotted underneath. Every jump is a new shell.',
+    build: () => {
+      const tab = makeTab('chemistry', 'Trends');
+      tab.chemistry = {
+        ...tab.chemistry,
+        selected: 11,
+        colourBy: 'radius',
+        plotProperty: 'radius',
+        showTrend: true,
+      };
+      return tab;
+    },
+  },
 ];
 
 // ------------------------------------------------------------------ helpers

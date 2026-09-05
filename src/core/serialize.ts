@@ -182,6 +182,8 @@ function loadTab(rawTab: unknown, index: number, warnings: string[]): TabState |
     parameters: merged.parameters.map((p, i) => ({ ...p, id: p.id || uid(`par${i}`) })),
     mechanics: sanitiseMechanics(merged.mechanics),
     circuits: sanitiseCircuits(merged.circuits),
+    quantum: sanitiseQuantum(merged.quantum),
+    chemistry: sanitiseChemistry(merged.chemistry),
   };
 }
 
@@ -348,7 +350,81 @@ function sanitiseCircuits(cfg: TabState['circuits']): TabState['circuits'] {
       timestep: Math.max(0, number(w.timestep, 0)),
     },
     readings,
+    // A hand-edited file could carry anything here, and an unrecognised value
+    // would silently disable the animation rather than pick a direction.
+    flowMode: cfg.flowMode === 'electron' ? 'electron' : 'conventional',
     selectedId: ids.has(cfg.selectedId ?? '') ? cfg.selectedId : null,
+  };
+}
+
+const FEATURE_KINDS = new Set(['barrier', 'well', 'step', 'harmonic', 'gaussian', 'linear', 'coulomb']);
+const QUANTUM_VIEWS = new Set(['bound', 'evolve', 'scatter', 'plane']);
+const PLANE_SHAPES = new Set(['box', 'circle', 'harmonic', 'separable']);
+
+function sanitiseQuantum(cfg: TabState['quantum']): TabState['quantum'] {
+  const w = isObject(cfg.world) ? (cfg.world as unknown as Record<string, unknown>) : {};
+  const raw = Array.isArray(w.features) ? w.features.filter(isObject) : [];
+  const features = raw
+    .filter((f) => FEATURE_KINDS.has(text(f.kind, '')))
+    .map((f, i) => ({
+      id: text(f.id, '') || uid(`qf${i}`),
+      kind: text(f.kind, 'barrier') as TabState['quantum']['world']['features'][number]['kind'],
+      centre: number(f.centre, 0),
+      // A zero or negative width is not a thin feature, it is a division by
+      // zero in every one of the shape functions.
+      width: Math.max(1e-4, number(f.width, 1)),
+      height: number(f.height, 1),
+    }));
+
+  const packet = isObject(w.packet) ? (w.packet as Record<string, unknown>) : {};
+  const plane = isObject(w.plane) ? (w.plane as Record<string, unknown>) : {};
+  const xMin = number(w.xMin, -3);
+  const xMax = number(w.xMax, 3);
+  const ids = new Set(features.map((f) => f.id));
+
+  return {
+    ...cfg,
+    world: {
+      view: (QUANTUM_VIEWS.has(text(w.view, '')) ? text(w.view, 'bound') : 'bound') as TabState['quantum']['world']['view'],
+      xMin: Math.min(xMin, xMax),
+      // A zero-width domain would make the grid spacing zero and every energy
+      // infinite; a hand-edited file is entitled to try.
+      xMax: Math.max(xMax, Math.min(xMin, xMax) + 0.01),
+      points: Math.max(32, Math.min(2000, Math.round(number(w.points, 480)))),
+      mass: Math.max(1e-4, number(w.mass, 1)),
+      features,
+      expression: text(w.expression, ''),
+      levels: Math.max(1, Math.min(24, Math.round(number(w.levels, 6)))),
+      packet: {
+        centre: number(packet.centre, 0),
+        width: Math.max(1e-3, number(packet.width, 1)),
+        momentum: number(packet.momentum, 0),
+      },
+      duration: Math.max(0.01, number(w.duration, 20)),
+      absorbing: flag(w.absorbing, true),
+      scatterMin: Math.max(1e-4, number(w.scatterMin, 0.05)),
+      scatterMax: Math.max(1e-3, number(w.scatterMax, 8)),
+      plane: {
+        shape: (PLANE_SHAPES.has(text(plane.shape, '')) ? text(plane.shape, 'box') : 'box') as TabState['quantum']['world']['plane']['shape'],
+        size: Math.max(0.05, number(plane.size, 1)),
+        depth: number(plane.depth, 200),
+        aspect: Math.max(0.2, Math.min(5, number(plane.aspect, 1))),
+        points: Math.max(16, Math.min(160, Math.round(number(plane.points, 90)))),
+        levels: Math.max(1, Math.min(24, Math.round(number(plane.levels, 6)))),
+      },
+    },
+    selectedId: ids.has(cfg.selectedId ?? '') ? cfg.selectedId : (features[0]?.id ?? null),
+    level: Math.max(0, Math.round(number(cfg.level, 0))),
+    scale: Math.max(0.05, Math.min(10, number(cfg.scale, 1))),
+  };
+}
+
+function sanitiseChemistry(cfg: TabState['chemistry']): TabState['chemistry'] {
+  return {
+    ...cfg,
+    // Out of range means no element panel at all, and an empty right-hand
+    // column with no explanation of why.
+    selected: Math.max(1, Math.min(118, Math.round(number(cfg.selected, 6)))),
   };
 }
 

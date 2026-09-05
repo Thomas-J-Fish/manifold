@@ -12,6 +12,7 @@ import {
   circuitSampleAt,
   createCircuitTrajectory,
   defaultValues,
+  flowPoint,
   operatingPoint,
   readCircuit,
   readingLabel,
@@ -19,6 +20,7 @@ import {
   sourceVoltage,
   staticResistance,
   terminals,
+  wireFlow,
   type CircuitElement,
   type CircuitTrajectory,
   type CircuitWorld,
@@ -434,7 +436,11 @@ function valueText(e: CircuitElement): string {
 interface Instant {
   voltage: (index: number) => number;
   current: (index: number) => number;
+  /** ∫I dt through the element since t = 0, which is what the dots follow. */
+  charge: (index: number) => number;
   nodeVoltage: (node: number) => number;
+  /** Largest |I| over the whole run, for scaling the animation. */
+  peakCurrent: number;
   time: number;
 }
 
@@ -504,30 +510,63 @@ function buildCircuitScene(
   }
 
   // ---- current flow -----------------------------------------------------
-  if (cfg.showCurrent && biggest > 1e-12) {
+  if (cfg.showCurrent && instant.peakCurrent > 1e-12) {
+    /* Where the charge has got to, not how fast it is moving now.
+     *
+     * The dots used to be placed at t·I(t): the elapsed time times the present
+     * current. For a circuit with a steady current that is the same thing as
+     * ∫I dt and looks perfectly convincing, which is why it survived. For any
+     * circuit that changes it is wrong, and visibly so — a discharging RC pair
+     * has t·e^(−t/τ) turning over at t = τ, so the dots slow, stop and run
+     * *backwards* while the current is still flowing the same way; an AC
+     * supply gives t·sin(ωt), a sweep that grows without bound instead of an
+     * oscillation. Integrating the current is both correct and, for the DC
+     * case, identical to what was there before.
+     *
+     * The scale is the largest current anywhere over the whole run, so the
+     * busiest branch moves at a readable speed and the quiet ones crawl in
+     * proportion. Taking that maximum per-instant instead — as this also used
+     * to — made every branch race at an AC zero crossing, where all the
+     * currents are tiny and only their ratio survives. */
+    const reference = Math.max(1e-12, instant.peakCurrent);
+    // Electrons are negative, so they drift against the conventional current.
+    const sense = cfg.flowMode === 'electron' ? -1 : 1;
     const xs: number[] = [];
     const ys: number[] = [];
-    netlist.active.forEach((e, i) => {
-      const current = instant.current(i);
-      if (!Number.isFinite(current) || Math.abs(current) < biggest * 0.002) return;
-      const g = geometry(e);
+    const trail = (e: CircuitElement, charge: number, current: number) => {
+      if (!Number.isFinite(charge) || Math.abs(current) < reference * 0.002) return;
       const dots = 3;
-      // Speed is the fraction of the biggest current in the circuit, so the
-      // busiest branch always moves and the quiet ones visibly crawl.
-      const speed = current / biggest;
+      const travelled = (sense * charge * 0.6) / reference;
       for (let d = 0; d < dots; d++) {
-        let s = (d / dots + instant.time * speed * 0.6) % 1;
-        if (s < 0) s += 1;
-        xs.push(g.ax + g.ux * s);
-        ys.push(g.ay + g.uy * s);
+        // flowPoint, not geometry: a reversed component is drawn along the
+        // grid axis but carries its current the other way.
+        const [px, py] = flowPoint(e, d / dots + travelled);
+        xs.push(px);
+        ys.push(py);
       }
-    });
+    };
+
+    const count = netlist.active.length;
+    const currents = new Float64Array(count);
+    const charges = new Float64Array(count);
+    for (let i = 0; i < count; i++) {
+      currents[i] = instant.current(i);
+      charges[i] = instant.charge(i);
+      trail(netlist.active[i], charges[i], currents[i]);
+    }
+    /* The wires carry the flow too. Without them the dots stop at one
+     * component and reappear at the next, and the one thing the animation is
+     * for — seeing the current go *round* — is exactly what is missing. */
+    const wireCharge = wireFlow(netlist, charges);
+    const wireCurrent = wireFlow(netlist, currents);
+    netlist.wires.forEach((w, j) => trail(w, wireCharge[j], wireCurrent[j]));
+
     if (xs.length) {
       layers.push({
         type: 'points',
         xs: Float64Array.from(xs),
         ys: Float64Array.from(ys),
-        colour: '#fbbf24',
+        colour: cfg.flowMode === 'electron' ? '#60d5fa' : '#fbbf24',
         radius: 2.6,
         alpha: 0.9,
       });
@@ -634,15 +673,22 @@ export function CircuitSurface({ tab }: { tab: TabState }) {
       return {
         voltage: (i) => traj.voltage[k * count + i],
         current: (i) => traj.current[k * count + i],
+        charge: (i) => traj.charge[k * count + i],
         nodeVoltage: (n) => traj.nodeVoltage[k * nodes + n],
+        peakCurrent: traj.peakCurrent,
         time: traj.time[k],
       };
     }
     const dc = run.dc;
+    let peak = 0;
+    for (let i = 0; i < count; i++) peak = Math.max(peak, Math.abs(dc?.elementCurrent[i] ?? 0));
     return {
       voltage: (i) => dc?.elementVoltage[i] ?? 0,
       current: (i) => dc?.elementCurrent[i] ?? 0,
+      // Nothing is changing, so the charge delivered really is I·t.
+      charge: (i) => (dc?.elementCurrent[i] ?? 0) * tab.timeline.t,
       nodeVoltage: (n) => dc?.nodeVoltage[n] ?? 0,
+      peakCurrent: peak,
       time: tab.timeline.t,
     };
   }, [run, traj, sampleIndex, tab.timeline.t]);
@@ -1291,10 +1337,32 @@ export function CircuitPanel({ tab }: { tab: TabState }) {
       <Collapsible title="Display" defaultOpen={false}>
         <Toggle
           label="Animate the current"
-          hint="Dots travel with the conventional current, faster where it is larger."
+          hint="Dots follow the charge round the circuit, faster where the current is larger."
           checked={cfg.showCurrent}
           onChange={(showCurrent) => setCircuits({ showCurrent })}
         />
+        {cfg.showCurrent && (
+          <div>
+            <span className="field-label">The dots are</span>
+            <SegmentedControl
+              size="sm"
+              value={cfg.flowMode}
+              onChange={(flowMode) => setCircuits({ flowMode })}
+              options={[
+                {
+                  value: 'conventional',
+                  label: 'Conventional current',
+                  title: 'Positive charge, leaving the + terminal and going round to the −.',
+                },
+                {
+                  value: 'electron',
+                  label: 'Electron flow',
+                  title: 'The electrons themselves: negative, so they drift the opposite way — out of the − terminal.',
+                },
+              ]}
+            />
+          </div>
+        )}
         <Toggle
           label="Node voltages"
           hint="Labels each junction, and colours the wires by potential."

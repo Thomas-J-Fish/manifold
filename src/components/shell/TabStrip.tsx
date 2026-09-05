@@ -14,6 +14,8 @@ const MODE_GLYPH: Record<TabMode, string> = {
   fitting: 'R²',
   mechanics: '⚙',
   circuits: '⏚',
+  quantum: 'ψ',
+  chemistry: '⚛',
 };
 
 /**

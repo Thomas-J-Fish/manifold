@@ -22,7 +22,9 @@ export type TabMode =
   | 'fields'
   | 'fitting'
   | 'mechanics'
-  | 'circuits';
+  | 'circuits'
+  | 'quantum'
+  | 'chemistry';
 
 export interface ModeInfo {
   id: TabMode;
@@ -32,6 +34,11 @@ export interface ModeInfo {
   /** Whether the tab's main surface is the 2D plotter, a 3D scene, or its own. */
   surface: '2d' | '3d' | 'custom';
   supportsTimeline: boolean;
+  /** What the clock is measured in. Seconds unless the physics says otherwise
+   * — a wavepacket crosses a nanometre in about a femtosecond, and a timeline
+   * reading "4.73 s" over a twenty-femtosecond run is not a rounding issue,
+   * it is the wrong quantity. */
+  timeUnit?: string;
 }
 
 export const MODES: ModeInfo[] = [
@@ -114,6 +121,23 @@ export const MODES: ModeInfo[] = [
     blurb: 'Wire up cells, resistors, capacitors and LEDs, then watch the currents and voltages.',
     surface: 'custom',
     supportsTimeline: true,
+  },
+  {
+    id: 'quantum',
+    name: 'Quantum Mechanics',
+    short: 'Quantum',
+    blurb: 'Draw wells and barriers, find the bound states, launch a wavepacket and watch it tunnel.',
+    surface: 'custom',
+    supportsTimeline: true,
+    timeUnit: 'fs',
+  },
+  {
+    id: 'chemistry',
+    name: 'Periodic Table',
+    short: 'Elements',
+    blurb: 'The table by any property, with each element opened up into its shells and orbitals.',
+    surface: 'custom',
+    supportsTimeline: false,
   },
 ];
 
@@ -441,11 +465,58 @@ export interface CircuitConfig {
   orientation: 'h' | 'v';
   selectedId: string | null;
   showCurrent: boolean;
+  /** Which way the animated dots travel: with the conventional current, or
+   * with the electrons, which drift the other way. */
+  flowMode: 'conventional' | 'electron';
   showNodeVoltages: boolean;
   showValues: boolean;
   showEquations: boolean;
   /** Steady state, or the transient played against the clock. */
   analysis: 'dc' | 'transient';
+}
+
+export interface QuantumConfig {
+  world: import('./physics/quantum').QuantumWorld;
+  /** Which feature of the potential is selected for editing. */
+  selectedId: string | null;
+  /** What clicking the canvas adds. */
+  tool: 'select' | import('./physics/quantum').FeatureKind;
+  /** Which rung of the energy ladder is highlighted. */
+  level: number;
+  /** Draw |ψ|² rather than ψ. */
+  probability: boolean;
+  /** Offset each state to sit on its own energy, the way textbooks draw it. */
+  stacked: boolean;
+  showEquations: boolean;
+  /** Vertical exaggeration of the wavefunctions against the energy axis. */
+  scale: number;
+}
+
+export type ElementProperty =
+  | 'category'
+  | 'mass'
+  | 'radius'
+  | 'electronegativity'
+  | 'ionisation'
+  | 'affinity'
+  | 'melting'
+  | 'boiling'
+  | 'density'
+  | 'abundance'
+  | 'discovered';
+
+export interface ChemistryConfig {
+  /** Atomic number of the element on show. */
+  selected: number;
+  colourBy: ElementProperty;
+  plotProperty: ElementProperty;
+  /** Bohr shells, or the probability cloud of the outermost subshell. */
+  atomView: 'shells' | 'orbital';
+  /** Which orbital the cloud shows, when it is not the outermost one. */
+  orbital: string;
+  showTrend: boolean;
+  /** Electrons go round. Off for a still picture, and for a screenshot. */
+  animate: boolean;
 }
 
 // ------------------------------------------------------------------ tab & project
@@ -474,6 +545,8 @@ export interface TabState {
   fitting: FittingConfig;
   mechanics: MechanicsConfig;
   circuits: CircuitConfig;
+  quantum: QuantumConfig;
+  chemistry: ChemistryConfig;
 }
 
 export interface ProjectMeta {

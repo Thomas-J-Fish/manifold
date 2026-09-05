@@ -191,7 +191,7 @@ async function main() {
   await page.keyboard.press('Escape');
 
   step('Every mode opens');
-  for (const id of ['statistics', 'linear-algebra', 'monte-carlo', 'calculus', 'dynamics', 'fields', 'fitting', 'circuits']) {
+  for (const id of ['statistics', 'linear-algebra', 'monte-carlo', 'calculus', 'dynamics', 'fields', 'fitting', 'circuits', 'quantum', 'chemistry']) {
     await selectMode(page, id);
     const result = await canvasHasContent(page);
     check(`${id} renders`, result.ok, result.reason);

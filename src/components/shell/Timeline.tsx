@@ -1,5 +1,5 @@
 import { useStore } from '../../core/store';
-import type { TabState } from '../../core/types';
+import { MODE_BY_ID, type TabState } from '../../core/types';
 import { IconButton, NumberField, Select } from '../ui/controls';
 import { IconPause, IconPlay, IconSkipBack, IconStepForward } from '../ui/Icons';
 
@@ -46,7 +46,8 @@ export function Timeline({ tab }: { tab: TabState }) {
       </div>
 
       <span className="w-16 shrink-0 text-right font-mono text-2xs tabular-nums text-ink-dim">
-        {tl.t.toFixed(2)}s
+        {tl.t.toFixed(2)}
+        {MODE_BY_ID.get(tab.mode)?.timeUnit ?? 's'}
       </span>
 
       <div className="w-20 shrink-0">

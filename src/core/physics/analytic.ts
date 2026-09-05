@@ -23,6 +23,7 @@
 import type { MechanicsWorld, PreparedWorld } from './mechanics';
 import type { CircuitWorld, ElementKind, Netlist } from './circuit';
 import { staticResistance } from './circuit';
+import { KINETIC, type QuantumWorld } from './quantum';
 
 export interface DerivedQuantity {
   label: string;
@@ -732,4 +733,212 @@ export function analyseCircuit(world: CircuitWorld, netlist: Netlist): AnalyticR
   }
 
   return GENERAL_CIRCUIT;
+}
+
+// ------------------------------------------------------------------ quantum
+
+/**
+ * Naming the quantum set-up on screen.
+ *
+ * The same strictness as the rest of this file: an infinite well, a harmonic
+ * oscillator and a single rectangular barrier have closed forms worth putting
+ * beside the numerics, and everything else gets the general statement. A
+ * student who has drawn two barriers and a step should be told that the
+ * equation being solved is still the Schrödinger equation and that no textbook
+ * formula applies — not shown the single-barrier result with its assumptions
+ * quietly broken.
+ */
+export function analyseQuantum(world: QuantumWorld, states: { energies: Float64Array; bound: number } | null): AnalyticResult {
+  const solitary = world.features.length === 1 ? world.features[0] : null;
+  const custom = world.expression.trim().length > 0;
+  const mass = Math.max(1e-6, world.mass);
+  const c = KINETIC / mass;
+
+  /* The two-dimensional view solves a different problem from the feature list,
+   * so it gets its own answer. Printing the one-dimensional finite-well
+   * formulae beside a picture of a circular well would be worse than printing
+   * nothing: they are correct equations about something else. */
+  if (world.view === 'plane') return planeAnalysis(world, c);
+  const general: string[] = [
+    String.raw`-\frac{\hbar^{2}}{2m}\frac{d^{2}\psi}{dx^{2}} + V(x)\,\psi = E\,\psi`,
+  ];
+
+  if (!custom && world.features.length === 0) {
+    const L = Math.abs(world.xMax - world.xMin);
+    return {
+      title: 'Infinite square well',
+      equations: [
+        ...general,
+        String.raw`E_{n} = \frac{n^{2}\pi^{2}\hbar^{2}}{2mL^{2}}`,
+        String.raw`\psi_{n}(x) = \sqrt{\tfrac{2}{L}}\,\sin\!\left(\frac{n\pi x}{L}\right)`,
+      ],
+      quantities: [
+        { label: 'Width L', value: L, unit: 'nm' },
+        { label: 'Ground state E₁', value: (c * Math.PI * Math.PI) / (L * L), unit: 'eV' },
+        { label: 'Spacing E₂ − E₁', value: (3 * c * Math.PI * Math.PI) / (L * L), unit: 'eV' },
+      ],
+      overlay: null,
+      caveat: 'The walls of the simulation are the walls of the well, so this is exact.',
+    };
+  }
+
+  if (!custom && solitary && solitary.kind === 'harmonic') {
+    // V = H(x/(W/2))² is ½kx², so k = 8H/W² and ħω = √(2·(ħ²/2m)·k).
+    const k = (8 * solitary.height) / (solitary.width * solitary.width);
+    const hbarOmega = Math.sqrt(2 * c * k);
+    return {
+      title: 'Harmonic oscillator',
+      equations: [
+        ...general,
+        String.raw`V(x) = \tfrac{1}{2}k(x-x_{0})^{2}`,
+        String.raw`E_{n} = \left(n + \tfrac{1}{2}\right)\hbar\omega, \qquad \omega = \sqrt{k/m}`,
+      ],
+      quantities: [
+        { label: 'Spring constant k', value: k, unit: 'eV/nm²' },
+        { label: 'ħω', value: hbarOmega, unit: 'eV' },
+        { label: 'Zero-point energy', value: hbarOmega / 2, unit: 'eV' },
+        { label: 'Ground-state width', value: Math.sqrt(c / hbarOmega), unit: 'nm' },
+      ],
+      overlay: null,
+      caveat: 'Exact for as long as the levels stay well inside the simulation box.',
+    };
+  }
+
+  if (!custom && solitary && solitary.kind === 'well') {
+    const a = solitary.width / 2;
+    const expected = Math.ceil((solitary.width / Math.PI) * Math.sqrt(solitary.height / c));
+    return {
+      title: 'Finite square well',
+      equations: [
+        ...general,
+        String.raw`k\tan(ka) = \kappa \quad\text{(even)}, \qquad k\cot(ka) = -\kappa \quad\text{(odd)}`,
+        String.raw`k = \frac{\sqrt{2m(E+V_{0})}}{\hbar}, \qquad \kappa = \frac{\sqrt{-2mE}}{\hbar}`,
+      ],
+      quantities: [
+        { label: 'Depth V₀', value: solitary.height, unit: 'eV' },
+        { label: 'Half-width a', value: a, unit: 'nm' },
+        { label: 'Bound states expected', value: expected, unit: '' },
+        ...(states ? [{ label: 'Bound states found', value: states.bound, unit: '' }] : []),
+      ],
+      overlay: null,
+      caveat: 'However shallow the well, it always holds at least one state — a fact peculiar to one dimension.',
+    };
+  }
+
+  if (!custom && solitary && solitary.kind === 'barrier') {
+    const kappaAt = (E: number) => Math.sqrt(Math.max(0, solitary.height - E) / c);
+    return {
+      title: 'Rectangular barrier',
+      equations: [
+        ...general,
+        String.raw`T = \left[1 + \frac{V_{0}^{2}\sinh^{2}(\kappa a)}{4E(V_{0}-E)}\right]^{-1}, \qquad E < V_{0}`,
+        String.raw`T \approx 16\,\frac{E}{V_{0}}\left(1-\frac{E}{V_{0}}\right)e^{-2\kappa a}, \qquad \kappa a \gg 1`,
+      ],
+      quantities: [
+        { label: 'Height V₀', value: solitary.height, unit: 'eV' },
+        { label: 'Width a', value: solitary.width, unit: 'nm' },
+        {
+          label: 'Decay length at ½V₀',
+          value: 1 / Math.max(1e-9, kappaAt(solitary.height / 2)),
+          unit: 'nm',
+        },
+      ],
+      overlay: null,
+      caveat: 'Exact for a single rectangular barrier with the same potential either side of it.',
+    };
+  }
+
+  return {
+    title: custom ? 'A potential of your own' : 'A potential of several parts',
+    equations: [
+      ...general,
+      String.raw`\psi(x,t) = \sum_{n} c_{n}\,\psi_{n}(x)\,e^{-iE_{n}t/\hbar}`,
+    ],
+    quantities: [
+      { label: 'Mass', value: world.mass, unit: 'mₑ' },
+      { label: 'Grid points', value: world.points, unit: '' },
+      ...(states && states.energies.length
+        ? [
+            { label: 'Ground state', value: states.energies[0], unit: 'eV' },
+            { label: 'Bound states', value: states.bound, unit: '' },
+          ]
+        : []),
+    ],
+    overlay: null,
+    caveat: 'No standard closed form applies to this arrangement; the levels above are the numerical solution.',
+  };
+}
+
+function planeAnalysis(world: QuantumWorld, c: number): AnalyticResult {
+  const p = world.plane;
+  const general = String.raw`-\frac{\hbar^{2}}{2m}\nabla^{2}\psi + V(x,y)\,\psi = E\,\psi`;
+  const width = 2 * p.size;
+  const height = width / Math.max(0.2, p.aspect);
+
+  if (p.shape === 'box') {
+    return {
+      title: 'Two-dimensional box',
+      equations: [
+        general,
+        String.raw`E_{n_{x}n_{y}} = \frac{\pi^{2}\hbar^{2}}{2m}\left(\frac{n_{x}^{2}}{L_{x}^{2}} + \frac{n_{y}^{2}}{L_{y}^{2}}\right)`,
+        String.raw`\psi = \frac{2}{\sqrt{L_{x}L_{y}}}\sin\frac{n_{x}\pi x}{L_{x}}\sin\frac{n_{y}\pi y}{L_{y}}`,
+      ],
+      quantities: [
+        { label: 'Lₓ', value: width, unit: 'nm' },
+        { label: 'L_y', value: height, unit: 'nm' },
+        { label: 'Ground state', value: c * Math.PI * Math.PI * (1 / (width * width) + 1 / (height * height)), unit: 'eV' },
+      ],
+      overlay: null,
+      caveat:
+        Math.abs(p.aspect - 1) < 1e-6
+          ? 'A square box makes (nₓ, n_y) and (n_y, nₓ) exactly degenerate. Change the aspect ratio and the pairs split.'
+          : 'Degeneracies here are accidental rather than symmetric — they come and go as the aspect ratio changes.',
+    };
+  }
+
+  if (p.shape === 'circle') {
+    return {
+      title: 'Circular well',
+      equations: [
+        general,
+        String.raw`\psi_{mn}(r,\phi) = J_{m}\!\left(\frac{j_{mn}r}{R}\right)e^{im\phi}`,
+        String.raw`E_{mn} = \frac{\hbar^{2}}{2m}\left(\frac{j_{mn}}{R}\right)^{2}`,
+      ],
+      quantities: [
+        { label: 'Radius R', value: p.size, unit: 'nm' },
+        { label: 'Depth', value: p.depth, unit: 'eV' },
+        { label: 'Ground state, infinite wall', value: c * (2.404826 / p.size) ** 2, unit: 'eV' },
+      ],
+      overlay: null,
+      caveat:
+        'jₘₙ are the zeros of the Bessel functions. Every m ≠ 0 state is doubly degenerate, one going each way round.',
+    };
+  }
+
+  if (p.shape === 'harmonic') {
+    const k = (2 * p.depth) / (p.size * p.size);
+    const hbarOmega = Math.sqrt(2 * c * k);
+    return {
+      title: 'Two-dimensional oscillator',
+      equations: [
+        general,
+        String.raw`E_{n} = (n+1)\hbar\omega, \qquad n = n_{x}+n_{y}`,
+        String.raw`g(n) = n + 1`,
+      ],
+      quantities: [
+        { label: 'ħω', value: hbarOmega, unit: 'eV' },
+        { label: 'Ground state', value: hbarOmega, unit: 'eV' },
+      ],
+      overlay: null,
+      caveat: 'The nth level holds n + 1 states — the degeneracy grows, which is where shell structure comes from.',
+    };
+  }
+
+  return {
+    title: 'A separable potential',
+    equations: [general, String.raw`E = E^{(x)}_{i} + E^{(y)}_{j}, \qquad \psi = \psi^{(x)}_{i}(x)\,\psi^{(y)}_{j}(y)`],
+    quantities: [{ label: 'Mass', value: world.mass, unit: 'mₑ' }],
+    overlay: null,
+    caveat: 'Your one-dimensional features, applied along both axes: the states are products and the energies add.',
+  };
 }
