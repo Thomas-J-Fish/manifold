@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../core/store';
-import { uid } from '../core/defaults';
+import { playbackSpeed, uid } from '../core/defaults';
 import { SERIES_COLOURS, type TabState } from '../core/types';
 import {
   advanceWave,
@@ -460,7 +460,9 @@ export function QuantumPanel({ tab }: { tab: TabState }) {
        * after the simulation does spends most of its travel on the last
        * frame, which reads as the animation having frozen. */
       const duration = patch.duration ?? world.duration;
-      patchActive({ timeline: { ...tab.timeline, t: 0, playing: false, tMax: duration } });
+      patchActive({
+        timeline: { ...tab.timeline, t: 0, playing: false, tMax: duration, speed: playbackSpeed(duration) },
+      });
     },
     [commit, setQuantum, world, patchActive, tab.timeline],
   );

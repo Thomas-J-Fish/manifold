@@ -11,7 +11,16 @@
  * told, while a user opening a slightly old project should just see it open.
  */
 
-import { defaultSignals, defaultWaves, makeProject, makeTab, uid } from './defaults';
+import {
+  defaultOptimisation,
+  defaultReactions,
+  defaultSignals,
+  defaultThermo,
+  defaultWaves,
+  makeProject,
+  makeTab,
+  uid,
+} from './defaults';
 import { defaultValues, SPEC_BY_KIND } from './physics/circuit';
 import {
   MODE_BY_ID,
@@ -48,7 +57,16 @@ const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean'
  * saved chi-squared distribution stores {df: 7}, and a key-wise merge against
  * the normal default {mu, sigma} would silently drop it. These paths are taken
  * verbatim instead. */
-const VERBATIM_SUFFIXES = ['.statistics.params', '.statistics.compareParams', '.monteCarlo.params'];
+const VERBATIM_SUFFIXES = [
+  '.statistics.params',
+  '.statistics.compareParams',
+  '.monteCarlo.params',
+  // Starting concentrations are keyed by species name, so the keys come from
+  // whatever equations the user typed. Merging them against the default's
+  // {A, B, C} would silently drop every species of a saved Haber run and put
+  // back the three the app happens to ship with.
+  '.reactions.initial',
+];
 
 const isVerbatim = (path: string) => VERBATIM_SUFFIXES.some((suffix) => path.endsWith(suffix));
 
@@ -205,6 +223,9 @@ function loadTab(rawTab: unknown, index: number, warnings: string[]): TabState |
     chemistry: sanitiseChemistry(merged.chemistry),
     waves: sanitiseWaves(merged.waves),
     signals: sanitiseSignals(merged.signals),
+    optimisation: sanitiseOptimisation(merged.optimisation),
+    reactions: sanitiseReactions(merged.reactions),
+    thermodynamics: sanitiseThermo(merged.thermodynamics),
   };
 }
 
@@ -493,6 +514,9 @@ function sanitiseWaves(cfg: TabState['waves']): TabState['waves'] {
     // An index below one is physically fine (X-rays, plasmas) but a zero or
     // negative one inverts Snell's law into nonsense.
     index: Math.max(1e-3, number(s.index, 1)),
+    // Zero means no dispersion. A negative Abbe number would invert the
+    // Cauchy curve and make blue refract less than red, which no glass does.
+    abbe: Math.max(0, Math.min(200, number(s.abbe, 0))),
     mirror: flag(s.mirror, false),
     label: text(s.label, `Surface ${i + 1}`),
   }));
@@ -526,9 +550,13 @@ function sanitiseWaves(cfg: TabState['waves']): TabState['waves'] {
       sourceDistance: Math.max(0, number(w.sourceDistance, fallback.sourceDistance)),
       surfaces,
       rayCount: Math.max(1, Math.min(201, Math.round(number(w.rayCount, fallback.rayCount)))),
-      rayHeight: Math.max(1e-3, number(w.rayHeight, fallback.rayHeight)),
+      // Zero is a legitimate fan: one ray straight down the axis, which is
+      // how a prism is normally drawn. Nothing divides by this.
+      rayHeight: Math.max(0, number(w.rayHeight, fallback.rayHeight)),
       objectDistance: number(w.objectDistance, fallback.objectDistance),
       rayAngle: number(w.rayAngle, fallback.rayAngle),
+      dispersion: flag(w.dispersion, fallback.dispersion),
+      spectrumLines: Math.max(2, Math.min(24, Math.round(number(w.spectrumLines, fallback.spectrumLines)))),
     },
     selectedId: ids.has(cfg.selectedId ?? '') ? cfg.selectedId : null,
     showAnalytic: flag(cfg.showAnalytic, true),
@@ -583,6 +611,194 @@ function sanitiseSignals(cfg: TabState['signals']): TabState['signals'] {
     windowSize,
     toneFrequency: Math.max(0, number(cfg.toneFrequency, fallback.toneFrequency)),
     sampleFrequency: Math.max(1, number(cfg.sampleFrequency, fallback.sampleFrequency)),
+  };
+}
+
+const OPT_VIEWS = new Set(['linear', 'descent', 'lagrange']);
+const RELATIONS = new Set(['<=', '>=', '=']);
+const DESCENT_METHODS = new Set(['gradient', 'momentum', 'nesterov', 'adam', 'newton']);
+
+function sanitiseOptimisation(cfg: TabState['optimisation']): TabState['optimisation'] {
+  const fallback = defaultOptimisation();
+  const pick = <T extends string>(v: unknown, allowed: Set<string>, dflt: T): T =>
+    allowed.has(text(v, '')) ? (v as T) : dflt;
+  const program = isObject(cfg.program) ? (cfg.program as unknown as Record<string, unknown>) : {};
+
+  /* Every constraint has to carry exactly two coefficients. The simplex reads
+   * them by index, so a row that arrived one short would silently be solved as
+   * though its second variable had coefficient undefined — which propagates as
+   * NaN through the whole tableau and comes out as an empty feasible region
+   * with no explanation. */
+  const coefficients = (v: unknown): [number, number] => {
+    const a = Array.isArray(v) ? v : [];
+    return [number(a[0], 0), number(a[1], 0)];
+  };
+
+  const rawConstraints = Array.isArray(program.constraints) ? program.constraints : [];
+  const constraints = rawConstraints.slice(0, 40).map((raw) => {
+    const c: Record<string, unknown> = isObject(raw) ? raw : {};
+    return {
+      id: text(c.id, uid('con')),
+      coefficients: coefficients(c.coefficients),
+      relation: pick(c.relation, RELATIONS, '<=' as const),
+      rhs: number(c.rhs, 0),
+      label: text(c.label, ''),
+    };
+  });
+
+  return {
+    ...cfg,
+    view: pick(cfg.view, OPT_VIEWS, fallback.view),
+    program: {
+      objective: coefficients(program.objective),
+      maximise: flag(program.maximise, true),
+      nonNegative: flag(program.nonNegative, true),
+      constraints,
+    },
+    // −1 means "the whole path"; anything else indexes into it and is clamped
+    // by the drawing code, so only the sentinel needs protecting here.
+    simplexStep: Math.max(-1, Math.round(number(cfg.simplexStep, -1))),
+    showRegion: flag(cfg.showRegion, true),
+    showObjectiveLine: flag(cfg.showObjectiveLine, true),
+    surface: text(cfg.surface, fallback.surface),
+    method: pick(cfg.method, DESCENT_METHODS, fallback.method),
+    rate: Math.max(1e-9, Math.min(10, number(cfg.rate, fallback.rate))),
+    momentum: Math.max(0, Math.min(0.999, number(cfg.momentum, fallback.momentum))),
+    descentSteps: Math.max(1, Math.min(50000, Math.round(number(cfg.descentSteps, fallback.descentSteps)))),
+    startX: number(cfg.startX, fallback.startX),
+    startY: number(cfg.startY, fallback.startY),
+    showContours: flag(cfg.showContours, true),
+    contourCount: Math.max(2, Math.min(60, Math.round(number(cfg.contourCount, fallback.contourCount)))),
+    objective: text(cfg.objective, fallback.objective),
+    constraint: text(cfg.constraint, fallback.constraint),
+    showGradients: flag(cfg.showGradients, true),
+    showEquations: flag(cfg.showEquations, true),
+  };
+}
+
+const REACTION_VIEWS = new Set(['kinetics', 'equilibrium', 'titration', 'arrhenius']);
+
+function sanitiseReactions(cfg: TabState['reactions']): TabState['reactions'] {
+  const fallback = defaultReactions();
+  const pick = <T extends string>(v: unknown, allowed: Set<string>, dflt: T): T =>
+    allowed.has(text(v, '')) ? (v as T) : dflt;
+
+  const rawReactions = Array.isArray(cfg.reactions) ? cfg.reactions : [];
+  const reactions = rawReactions.slice(0, 24).map((raw) => {
+    const r: Record<string, unknown> = isObject(raw) ? raw : {};
+    return {
+      id: text(r.id, uid('rxn')),
+      equation: text(r.equation, 'A -> B'),
+      // A negative rate constant would run the reaction backwards through its
+      // own rate law and send the concentrations off to minus infinity.
+      forward: Math.max(0, number(r.forward, 1)),
+      reverse: Math.max(0, number(r.reverse, 0)),
+      activationForward: Math.max(0, number(r.activationForward, 50)),
+      activationReverse: Math.max(0, number(r.activationReverse, 50)),
+      enabled: flag(r.enabled, true),
+    };
+  });
+
+  const initial: Record<string, number> = {};
+  if (isObject(cfg.initial)) {
+    for (const [key, value] of Object.entries(cfg.initial)) {
+      if (typeof key === 'string' && key.length <= 24) initial[key] = Math.max(0, number(value, 0));
+    }
+  }
+
+  const p = isObject(cfg.perturbation) ? (cfg.perturbation as unknown as Record<string, unknown>) : {};
+  // Ka values must be positive: log10 of zero is −Infinity and the bisection
+  // would search an interval with no finite endpoint.
+  const ka = (Array.isArray(cfg.ka) ? cfg.ka : [])
+    .map((k) => number(k, 0))
+    .filter((k) => k > 0 && k < 1e6)
+    .slice(0, 6);
+
+  return {
+    ...cfg,
+    view: pick(cfg.view, REACTION_VIEWS, fallback.view),
+    reactions: reactions.length ? reactions : fallback.reactions,
+    initial,
+    duration: Math.max(1e-6, Math.min(1e6, number(cfg.duration, fallback.duration))),
+    samples: Math.max(2, Math.min(4000, Math.round(number(cfg.samples, fallback.samples)))),
+    useArrhenius: flag(cfg.useArrhenius, false),
+    temperature: Math.max(1, Math.min(5000, number(cfg.temperature, fallback.temperature))),
+    perturbation: {
+      at: Math.max(0, number(p.at, 0)),
+      species: text(p.species, 'A'),
+      amount: number(p.amount, 0),
+      enabled: flag(p.enabled, false),
+    },
+    showEquilibrium: flag(cfg.showEquilibrium, true),
+    logScale: flag(cfg.logScale, false),
+    acidConcentration: Math.max(1e-9, Math.min(20, number(cfg.acidConcentration, fallback.acidConcentration))),
+    acidVolume: Math.max(1e-3, Math.min(1e4, number(cfg.acidVolume, fallback.acidVolume))),
+    baseConcentration: Math.max(1e-9, Math.min(20, number(cfg.baseConcentration, fallback.baseConcentration))),
+    ka: ka.length ? ka : fallback.ka,
+    acidInFlask: flag(cfg.acidInFlask, true),
+    titrantVolume: Math.max(1e-3, Math.min(1e4, number(cfg.titrantVolume, fallback.titrantVolume))),
+    showEquivalence: flag(cfg.showEquivalence, true),
+    showBuffer: flag(cfg.showBuffer, true),
+    arrheniusFrom: Math.max(1, Math.min(5000, number(cfg.arrheniusFrom, fallback.arrheniusFrom))),
+    arrheniusTo: Math.max(1, Math.min(5000, number(cfg.arrheniusTo, fallback.arrheniusTo))),
+  };
+}
+
+const THERMO_VIEWS = new Set(['box', 'speeds', 'cycle', 'gaslaw']);
+const PROCESS_KINDS = new Set(['isothermal', 'isobaric', 'isochoric', 'adiabatic']);
+
+function sanitiseThermo(cfg: TabState['thermodynamics']): TabState['thermodynamics'] {
+  const fallback = defaultThermo();
+  const pick = <T extends string>(v: unknown, allowed: Set<string>, dflt: T): T =>
+    allowed.has(text(v, '')) ? (v as T) : dflt;
+
+  const boxWidth = Math.max(0.1, Math.min(20, number(cfg.boxWidth, fallback.boxWidth)));
+  const boxHeight = Math.max(0.1, Math.min(20, number(cfg.boxHeight, fallback.boxHeight)));
+  /* The radius has to leave room for the particles to exist: discs bigger than
+   * the box are placed on top of each other and the collision resolver spends
+   * every frame pushing an impossible arrangement apart, which reads as a gas
+   * that explodes on load. It also sets the collision grid's cell size, so a
+   * zero radius would ask for infinitely many cells. */
+  const radius = Math.max(1e-4, Math.min(Math.min(boxWidth, boxHeight) / 4, number(cfg.radius, fallback.radius)));
+
+  const rawCycle = Array.isArray(cfg.cycle) ? cfg.cycle : [];
+  const cycle = rawCycle.slice(0, 12).map((raw) => {
+    const l: Record<string, unknown> = isObject(raw) ? raw : {};
+    return {
+      id: text(l.id, uid('leg')),
+      kind: pick(l.kind, PROCESS_KINDS, 'isothermal' as const),
+      // Zero or negative targets are states the gas cannot be in; the tracer
+      // reports them, but only if they arrive as finite numbers.
+      target: Math.max(1e-6, number(l.target, 1)),
+      label: text(l.label, ''),
+    };
+  });
+
+  return {
+    ...cfg,
+    view: pick(cfg.view, THERMO_VIEWS, fallback.view),
+    count: Math.max(1, Math.min(4000, Math.round(number(cfg.count, fallback.count)))),
+    boxWidth,
+    boxHeight,
+    radius,
+    particleMass: Math.max(1e-6, Math.min(1e4, number(cfg.particleMass, fallback.particleMass))),
+    temperature: Math.max(1e-6, Math.min(1e5, number(cfg.temperature, fallback.temperature))),
+    thermostat: Math.max(0, Math.min(100, number(cfg.thermostat, 0))),
+    gravity: Math.max(-100, Math.min(100, number(cfg.gravity, 0))),
+    seed: text(cfg.seed, fallback.seed),
+    identicalSpeeds: flag(cfg.identicalSpeeds, false),
+    pistonSpeed: Math.max(-2, Math.min(2, number(cfg.pistonSpeed, 0))),
+    histogramBins: Math.max(4, Math.min(200, Math.round(number(cfg.histogramBins, fallback.histogramBins)))),
+    showMaxwell: flag(cfg.showMaxwell, true),
+    showTrails: flag(cfg.showTrails, false),
+    colourBySpeed: flag(cfg.colourBySpeed, true),
+    cycle: cycle.length ? cycle : fallback.cycle,
+    startVolume: Math.max(1e-6, Math.min(1e6, number(cfg.startVolume, fallback.startVolume))),
+    startTemperature: Math.max(1e-6, Math.min(1e6, number(cfg.startTemperature, fallback.startTemperature))),
+    moles: Math.max(1e-6, Math.min(1e6, number(cfg.moles, fallback.moles))),
+    // Two, three, five or six in practice; γ = (f+2)/f needs f > 0 whatever.
+    degreesOfFreedom: Math.max(1, Math.min(12, Math.round(number(cfg.degreesOfFreedom, fallback.degreesOfFreedom)))),
+    showCarnot: flag(cfg.showCarnot, true),
   };
 }
 

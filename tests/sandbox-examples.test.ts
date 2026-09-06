@@ -23,6 +23,39 @@ import { aliasFrequency, applyFilter, designFilter, satisfiesNyquist, spectrum }
 import { EvalScope } from '../src/core/math/scope';
 import { Rng } from '../src/core/math/random';
 import { levenbergMarquardt, NONLINEAR_MODELS, polynomialFit } from '../src/core/math/fitting';
+import { constrainedExtrema, feasibleRegion, gradientDescent, solveLinearProgram } from '../src/core/math/optimise';
+import {
+  buildNetwork,
+  equilibriumConstant,
+  reactionQuotient,
+  runKinetics,
+  titrationCurve,
+} from '../src/core/chemistry/reactions';
+import {
+  advanceGas,
+  boxArea,
+  carnotEfficiency,
+  createGas,
+  kineticEnergy,
+  speeds as speedsOf,
+  temperatureOf,
+  traceCycle,
+  type GasWorld,
+} from '../src/core/physics/thermo';
+import type { ThermoConfig } from '../src/core/types';
+
+/** The gas the thermodynamics mode builds from a tab's settings. */
+const gasWorld = (cfg: ThermoConfig): GasWorld => ({
+  count: cfg.count,
+  width: cfg.boxWidth,
+  height: cfg.boxHeight,
+  radius: cfg.radius,
+  mass: cfg.particleMass,
+  temperature: cfg.temperature,
+  thermostat: cfg.thermostat,
+  seed: cfg.seed,
+  gravity: cfg.gravity,
+});
 
 /* An example that does not run is worse than no example: it is the first thing
  * a new user opens, and a warning triangle there says the whole app is
@@ -477,5 +510,281 @@ describe('signals examples', () => {
     const cfg = EXAMPLES.find((e) => e.id === 'aliasing')!.build().signals;
     expect(aliasFrequency(cfg.toneFrequency, cfg.sampleFrequency)).toBeCloseTo(100, 12);
     expect(satisfiesNyquist(cfg.toneFrequency, cfg.sampleFrequency)).toBe(false);
+  });
+});
+
+describe('optimisation examples', () => {
+  const examples = EXAMPLES.filter((e) => e.mode === 'optimisation');
+
+  it('cover all three views', () => {
+    const views = new Set(examples.map((e) => e.build().optimisation.view));
+    expect([...views].sort()).toEqual(['descent', 'lagrange', 'linear']);
+  });
+
+  it('solves the feed-mix problem at the corner arithmetic puts it', () => {
+    const cfg = EXAMPLES.find((e) => e.id === 'transport-plan')!.build().optimisation;
+    const result = solveLinearProgram(cfg.program);
+    /* Minimise 3x + 5y with 2x + y ≥ 8 and x + 3y ≥ 9. The two constraints
+     * meet at (3, 2): from 2x + y = 8 and x + 3y = 9, x = 3 and y = 2, giving
+     * 9 + 10 = 19. Solved by hand, not by running this and writing down what
+     * came out. */
+    expect(result.status).toBe('optimal');
+    expect(result.point![0]).toBeCloseTo(3, 9);
+    expect(result.point![1]).toBeCloseTo(2, 9);
+    expect(result.value).toBeCloseTo(19, 9);
+    // The origin is infeasible here, so phase one had work to do.
+    expect(result.path.some((s) => s.phase === 1)).toBe(true);
+    // And the region it walked is a genuine polygon.
+    expect(feasibleRegion(cfg.program).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('gets the descent example down the valley', () => {
+    const cfg = EXAMPLES.find((e) => e.id === 'descent-methods')!.build().optimisation;
+    const scope = new EvalScope();
+    const { fn, error } = scope.compile2(cfg.surface, 'x', 'y');
+    expect(error).toBeNull();
+    const result = gradientDescent(fn, {
+      method: cfg.method,
+      rate: cfg.rate,
+      momentum: cfg.momentum,
+      steps: cfg.descentSteps,
+      start: [cfg.startX, cfg.startY],
+      tolerance: 1e-10,
+    });
+    // Rosenbrock's minimum is at (1, 1) with f = 0, which is where the example
+    // has to arrive for it to be showing what it claims to show.
+    const last = result.path[result.path.length - 1];
+    expect(last.f).toBeLessThan(1e-3);
+    expect(last.x).toBeCloseTo(1, 1);
+    expect(last.y).toBeCloseTo(1, 1);
+    for (const p of result.path) expect(Number.isFinite(p.f)).toBe(true);
+  });
+
+  it('finds the largest rectangle in the ellipse, with the multipliers agreeing', () => {
+    const cfg = EXAMPLES.find((e) => e.id === 'lagrange-box')!.build().optimisation;
+    const scope = new EvalScope();
+    const f = scope.compile2(cfg.objective, 'x', 'y');
+    const g = scope.compile2(cfg.constraint, 'x', 'y');
+    expect(f.error).toBeNull();
+    expect(g.error).toBeNull();
+
+    const result = constrainedExtrema(f.fn, g.fn, { xMin: -2.6, xMax: 2.6, yMin: -1.6, yMax: 1.6 }, 300);
+    const best = result.best!;
+    /* Maximising xy on x²/4 + y² = 1 gives x = √2, y = 1/√2 and xy = 1 —
+     * Lagrange by hand: (y, x) = λ(x/2, 2y) forces x² = 4y², and the
+     * constraint then fixes both. */
+    expect(best.f).toBeCloseTo(1, 2);
+    expect(Math.abs(best.x)).toBeCloseTo(Math.SQRT2, 1);
+    expect(Math.abs(best.y)).toBeCloseTo(1 / Math.SQRT2, 1);
+    // On the curve, and with the two gradients parallel — the cross product
+    // of ∇f and ∇g is what the whole method asserts is zero.
+    expect(Math.abs(g.fn(best.x, best.y))).toBeLessThan(1e-6);
+    const cross = best.gradF[0] * best.gradG[1] - best.gradF[1] * best.gradG[0];
+    expect(Math.abs(cross)).toBeLessThan(1e-4);
+  });
+});
+
+describe('reactions examples', () => {
+  const examples = EXAMPLES.filter((e) => e.mode === 'reactions');
+
+  it('cover three different views', () => {
+    const views = new Set(examples.map((e) => e.build().reactions.view));
+    expect(views.size).toBeGreaterThanOrEqual(3);
+  });
+
+  for (const example of examples) {
+    it(`${example.title} parses and integrates to something finite`, () => {
+      const tab = example.build();
+      const cfg = tab.reactions;
+      const network = buildNetwork(cfg.reactions);
+      expect(`${example.id}: ${network.problems.join(' ') || 'ok'}`).toBe(`${example.id}: ok`);
+
+      const result = runKinetics(network, cfg.initial, cfg.duration, cfg.samples, {
+        useArrhenius: cfg.useArrhenius,
+        temperature: cfg.temperature,
+        perturbation: cfg.perturbation.enabled ? cfg.perturbation : null,
+      });
+      for (const row of result.concentrations) {
+        for (const v of row) {
+          expect(Number.isFinite(v)).toBe(true);
+          // A concentration below zero means the integrator has overshot, and
+          // it is the failure mode stiff kinetics actually has.
+          expect(v).toBeGreaterThan(-1e-6);
+        }
+      }
+    });
+  }
+
+  it('puts the intermediate’s maximum where the rate constants say', () => {
+    const cfg = EXAMPLES.find((e) => e.id === 'consecutive-reaction')!.build().reactions;
+    const network = buildNetwork(cfg.reactions);
+    const result = runKinetics(network, cfg.initial, cfg.duration, 2000, {
+      useArrhenius: false,
+      temperature: 298,
+    });
+    const b = result.concentrations[result.species.indexOf('B')];
+    let peak = 0;
+    let at = 0;
+    b.forEach((v, i) => {
+      if (v > peak) {
+        peak = v;
+        at = result.times[i];
+      }
+    });
+    /* For A → B → C the closed solution puts B's maximum at
+     * t = ln(k₁/k₂)/(k₁ − k₂) and its height at (k₂/k₁)^(k₂/(k₁−k₂)). With
+     * k₁ = 0.8 and k₂ = 0.15 that is t = 2.577 and B = 0.712 — neither number
+     * is anywhere in the code being tested. */
+    const k1 = cfg.reactions[0].forward;
+    const k2 = cfg.reactions[1].forward;
+    expect(at).toBeCloseTo(Math.log(k1 / k2) / (k1 - k2), 1);
+    expect(peak).toBeCloseTo((k2 / k1) ** (k2 / (k1 - k2)), 2);
+    // And the example has to actually show the hump it is named for: with the
+    // constants the other way round B never accumulates and the point is lost.
+    expect(peak).toBeGreaterThan(0.4);
+
+    // And mass is conserved: nothing enters or leaves this network.
+    const total = result.species.map((_, i) => result.concentrations[i]);
+    for (let j = 0; j < result.times.length; j += 50) {
+      expect(total.reduce((s, row) => s + row[j], 0)).toBeCloseTo(1, 6);
+    }
+  });
+
+  it('moves the Haber equilibrium without moving its constant', () => {
+    const tab = EXAMPLES.find((e) => e.id === 'le-chatelier')!.build();
+    const cfg = tab.reactions;
+    const network = buildNetwork(cfg.reactions);
+    const spec = cfg.reactions[0];
+    const k = equilibriumConstant(spec, false, cfg.temperature)!;
+    expect(k).toBeCloseTo(spec.forward / spec.reverse, 12);
+
+    const kicked = runKinetics(network, cfg.initial, cfg.duration, 1200, {
+      useArrhenius: false,
+      temperature: cfg.temperature,
+      perturbation: cfg.perturbation,
+    });
+    const at = (name: string, index: number) => kicked.concentrations[kicked.species.indexOf(name)][index];
+    const beforeKick = Math.round((cfg.perturbation.at / cfg.duration) * 1199) - 8;
+    const end = kicked.times.length - 1;
+
+    // The disturbance moves every concentration...
+    expect(at('NH3', end)).toBeGreaterThan(at('NH3', beforeKick) + 0.05);
+    expect(at('H2', end)).toBeLessThan(at('H2', beforeKick) - 0.05);
+    // ...and leaves Q back at K, which is the point of the demonstration.
+    const parsed = network.reactions[0].parsed;
+    const q = reactionQuotient(parsed, {
+      N2: at('N2', end),
+      H2: at('H2', end),
+      NH3: at('NH3', end),
+    })!;
+    expect(q / k).toBeCloseTo(1, 1);
+  });
+
+  it('gives the diprotic titration two equivalence points in the right places', () => {
+    const cfg = EXAMPLES.find((e) => e.id === 'diprotic-titration')!.build().reactions;
+    const result = titrationCurve({
+      acidConcentration: cfg.acidConcentration,
+      acidVolume: cfg.acidVolume,
+      baseConcentration: cfg.baseConcentration,
+      ka: cfg.ka,
+      acidInFlask: cfg.acidInFlask,
+      maxVolume: cfg.titrantVolume,
+      points: 900,
+    });
+    // Equal concentrations, so each proton takes one flask-volume of titrant.
+    expect(result.equivalenceVolumes).toHaveLength(2);
+    expect(result.equivalenceVolumes[0]).toBeCloseTo(25, 6);
+    expect(result.equivalenceVolumes[1]).toBeCloseTo(50, 6);
+    // Half-equivalence is where pH = pKa, which is how a titration measures one.
+    expect(result.halfEquivalenceVolumes[0]).toBeCloseTo(12.5, 6);
+    expect(result.pKa[0]).toBeCloseTo(-Math.log10(cfg.ka[0]), 6);
+    const half = result.points.reduce((best, p) =>
+      Math.abs(p.volume - 12.5) < Math.abs(best.volume - 12.5) ? p : best,
+    );
+    expect(half.ph).toBeCloseTo(result.pKa[0], 1);
+    // The curve rises the whole way: adding base can never lower the pH.
+    for (let i = 1; i < result.points.length; i++) {
+      expect(result.points[i].ph).toBeGreaterThan(result.points[i - 1].ph - 1e-9);
+    }
+  });
+});
+
+describe('thermodynamics examples', () => {
+  const examples = EXAMPLES.filter((e) => e.mode === 'thermodynamics');
+
+  it('cover three different views', () => {
+    const views = new Set(examples.map((e) => e.build().thermodynamics.view));
+    expect(views.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it('starts the Maxwell example with every particle at one speed', () => {
+    const cfg = EXAMPLES.find((e) => e.id === 'maxwell-emerges')!.build().thermodynamics;
+    expect(cfg.identicalSpeeds).toBe(true);
+    // Insulated, or the temperature the analytic curve is drawn at would drift
+    // while the distribution is still forming.
+    expect(cfg.thermostat).toBe(0);
+    const state = createGas(gasWorld(cfg), true);
+    const values = speedsOf(state);
+    expect(Math.max(...values) - Math.min(...values)).toBeLessThan(1e-9);
+    expect(temperatureOf(state)).toBeCloseTo(cfg.temperature, 6);
+  });
+
+  it('heats the compression example by the adiabatic amount', () => {
+    const cfg = EXAMPLES.find((e) => e.id === 'adiabatic-squeeze')!.build().thermodynamics;
+    expect(cfg.pistonSpeed).toBeLessThan(0);
+    const state = createGas(gasWorld(cfg));
+    const step = (dt: number, until: number) => {
+      let t = 0;
+      while (t < until - 1e-9) {
+        advanceGas(state, Math.min(dt, until - t));
+        t += Math.min(dt, until - t);
+      }
+    };
+
+    step(1 / 30, 2);
+    const t0 = temperatureOf(state);
+    const a0 = boxArea(state);
+    const e0 = kineticEnergy(state);
+
+    state.wallVx = cfg.pistonSpeed;
+    step(1 / 30, 18);
+    state.wallVx = 0;
+    step(1 / 30, 2);
+
+    const t1 = temperatureOf(state);
+    const a1 = boxArea(state);
+    expect(a1).toBeLessThan(a0 * 0.7);
+    expect(t1).toBeGreaterThan(t0 * 1.3);
+    /* γ = 2 in two dimensions, so TA is the adiabatic invariant. It holds to
+     * within the discs' own excluded area, which at this density is a few per
+     * cent. */
+    expect((t1 * a1) / (t0 * a0)).toBeGreaterThan(0.9);
+    expect((t1 * a1) / (t0 * a0)).toBeLessThan(1.12);
+    // And the energy went in through the wall, not from nowhere.
+    expect(kineticEnergy(state) - e0).toBeCloseTo(state.wallWork, 6);
+  });
+
+  it('gets the Otto cycle’s efficiency from work over heat', () => {
+    const cfg = EXAMPLES.find((e) => e.id === 'otto-cycle')!.build().thermodynamics;
+    const result = traceCycle(
+      cfg.cycle,
+      { v: cfg.startVolume, t: cfg.startTemperature },
+      cfg.moles,
+      8.314462618,
+      cfg.degreesOfFreedom,
+      600,
+    );
+    expect(result.closed).toBe(true);
+    /* η = 1 − r^(1−γ), with the compression ratio read off the cycle's own
+     * first leg rather than written out again here: for r = 8 and γ = 7/5 that
+     * is 56.47%. The tracer only ever integrates P dV and applies the first
+     * law, so this is a closed form it has no access to. */
+    const gamma = (cfg.degreesOfFreedom + 2) / cfg.degreesOfFreedom;
+    const ratio = cfg.startVolume / cfg.cycle[0].target;
+    expect(ratio).toBeCloseTo(8, 9);
+    expect(result.efficiency).toBeCloseTo(1 - ratio ** (1 - gamma), 3);
+    // No cycle can beat Carnot between the same two temperatures.
+    const temps = result.legs.flatMap((l) => l.points.map((p) => p.t));
+    expect(result.efficiency).toBeLessThan(carnotEfficiency(Math.min(...temps), Math.max(...temps)));
   });
 });

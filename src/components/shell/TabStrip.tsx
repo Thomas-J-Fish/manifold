@@ -18,6 +18,9 @@ const MODE_GLYPH: Record<TabMode, string> = {
   chemistry: '⚛',
   waves: '≈',
   signals: '⋀',
+  optimisation: '◹',
+  reactions: '⇌',
+  thermodynamics: '♨',
 };
 
 /**

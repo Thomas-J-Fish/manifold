@@ -59,9 +59,16 @@ describe('share links', () => {
     const encoded = (await encodeProject(project)).length;
 
     expect(raw).toBeGreaterThan(20_000);
-    // Comfortably inside the 30,000-character ceiling the share dialog warns
-    // at, and about a seventh of the raw size.
-    expect(encoded).toBeLessThan(8_000);
+    /* Comfortably inside the 30,000-character ceiling the share dialog warns
+     * at, and about a seventh of the raw size.
+     *
+     * The absolute figure creeps up every time a mode is added, because every
+     * tab carries every mode's settings whether it uses them or not — so this
+     * bound is deliberately loose and the ratio below is the assertion that
+     * actually says compression is working. If the absolute number ever gets
+     * close to 30,000, the fix is to stop storing unused mode configs rather
+     * than to raise this again. */
+    expect(encoded).toBeLessThan(12_000);
     expect(encoded / raw).toBeLessThan(0.2);
   });
 

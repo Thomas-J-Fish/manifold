@@ -7,7 +7,7 @@
  * faster than any amount of documentation.
  */
 
-import { makeExpression, makeParameter, makeTab, uid } from './defaults';
+import { makeExpression, makeParameter, makeTab, playbackSpeed, uid } from './defaults';
 import { defaultValues as circuitDefaults } from './physics/circuit';
 import type { CircuitElement, ElementKind } from './physics/circuit';
 import type { Body, Link, Measurement, Surface } from './physics/mechanics';
@@ -817,7 +817,10 @@ export const EXAMPLES: Example[] = [
         analysis: 'transient',
       };
       tab.viewport = { xMin: -0.9, xMax: 4.9, yMin: -2.4, yMax: 1.4 };
-      tab.timeline = { ...tab.timeline, tMax: 0.01, playing: true };
+      // Ten milliseconds of ringing. At 1× that replays a hundred times a
+      // second, which reads as a broken animation rather than as an
+      // oscillation; five hundred times slow puts it at five seconds.
+      tab.timeline = { ...tab.timeline, tMax: 0.01, speed: playbackSpeed(0.01), playing: true };
       return tab;
     },
   },
@@ -1052,7 +1055,9 @@ export const EXAMPLES: Example[] = [
         },
         selectedId: null,
       };
-      tab.timeline = { ...tab.timeline, playing: true, tMax: 0.01 };
+      // The pulse crosses in milliseconds; slow motion is the only way to
+      // watch it meet the junction and split.
+      tab.timeline = { ...tab.timeline, playing: true, tMax: 0.01, speed: playbackSpeed(0.01) };
       return tab;
     },
   },
@@ -1133,8 +1138,8 @@ export const EXAMPLES: Example[] = [
           ...tab.waves.world,
           view: 'rays',
           surfaces: [
-            { id: 'entry', z: 0, radius: 0, tilt: 0, aperture: 26, index: 1.5, mirror: false, label: 'Entry face' },
-            { id: 'exit', z: 34, radius: 0, tilt: 45, aperture: 26, index: 1, mirror: false, label: '45° face' },
+            { id: 'entry', z: 0, radius: 0, tilt: 0, aperture: 26, index: 1.5, abbe: 0, mirror: false, label: 'Entry face' },
+            { id: 'exit', z: 34, radius: 0, tilt: 45, aperture: 26, index: 1, abbe: 0, mirror: false, label: '45° face' },
           ],
           rayCount: 9,
           rayHeight: 16,
@@ -1144,6 +1149,42 @@ export const EXAMPLES: Example[] = [
         selectedId: 'exit',
         showEquations: true,
       };
+      return tab;
+    },
+  },
+  {
+    id: 'dispersion',
+    mode: 'waves',
+    title: 'White light through a prism',
+    blurb:
+      'A 20° wedge of dense flint. Blue refracts more than red because n depends on wavelength — set the Abbe number to zero and the spectrum collapses to a single white ray.',
+    build: () => {
+      const tab = makeTab('waves', 'Prism');
+      tab.waves = {
+        ...tab.waves,
+        world: {
+          ...tab.waves.world,
+          view: 'rays',
+          surfaces: [
+            // SF11: n_d = 1.7847, V_d = 25.7. Steepen the wedge much past this
+            // and the flint stops transmitting altogether — a high index buys
+            // dispersion at the cost of a low critical angle.
+            { id: 'in', z: 0, radius: 0, tilt: -20, aperture: 34, index: 1.7847, abbe: 25.7, mirror: false, label: 'Entry face' },
+            { id: 'out', z: 34, radius: 0, tilt: 20, aperture: 34, index: 1, abbe: 0, mirror: false, label: 'Exit face' },
+          ],
+          rayCount: 1,
+          rayHeight: 0,
+          objectDistance: 0,
+          rayAngle: 0,
+          dispersion: true,
+          spectrumLines: 15,
+        },
+        selectedId: 'in',
+        showEquations: true,
+      };
+      // A 40° apex deviates the beam by about 35°, so the frame follows it up
+      // and to the right rather than sitting square on the axis.
+      tab.viewport = { xMin: -20, xMax: 100, yMin: -10, yMax: 55 };
       return tab;
     },
   },
@@ -1161,8 +1202,8 @@ export const EXAMPLES: Example[] = [
           ...tab.waves.world,
           view: 'rays',
           surfaces: [
-            { id: 'front', z: 0, radius: 60, tilt: 0, aperture: 20, index: 1.5, mirror: false, label: 'Front' },
-            { id: 'back', z: 10, radius: -60, tilt: 0, aperture: 20, index: 1, mirror: false, label: 'Back' },
+            { id: 'front', z: 0, radius: 60, tilt: 0, aperture: 20, index: 1.5, abbe: 0, mirror: false, label: 'Front' },
+            { id: 'back', z: 10, radius: -60, tilt: 0, aperture: 20, index: 1, abbe: 0, mirror: false, label: 'Back' },
           ],
           rayCount: 13,
           // A fan wide enough that the marginal rays miss the paraxial focus
@@ -1306,6 +1347,283 @@ export const EXAMPLES: Example[] = [
         toneFrequency: 900,
         sampleFrequency: 1000,
       };
+      return tab;
+    },
+  },
+
+  // ------------------------------------------------------------- optimisation
+
+  {
+    id: 'transport-plan',
+    mode: 'optimisation',
+    title: 'A blending problem',
+    blurb:
+      'Minimise the cost of a feed mix that has to clear two nutrient minimums. The region is unbounded upwards and the answer is still a corner.',
+    build: () => {
+      const tab = makeTab('optimisation', 'Feed mix');
+      tab.optimisation = {
+        ...tab.optimisation,
+        view: 'linear',
+        /* Greater-than constraints, which is where two-phase simplex earns its
+         * keep: the origin is infeasible, so there is no free starting corner
+         * and phase one has to find one. Minimise 3x + 5y subject to
+         * 2x + y ≥ 8 and x + 3y ≥ 9. The optimum is at (3, 2) with cost 19. */
+        program: {
+          objective: [3, 5],
+          maximise: false,
+          nonNegative: true,
+          constraints: [
+            { id: uid('con'), coefficients: [2, 1], relation: '>=', rhs: 8, label: 'Protein' },
+            { id: uid('con'), coefficients: [1, 3], relation: '>=', rhs: 9, label: 'Fibre' },
+          ],
+        },
+        simplexStep: -1,
+        showRegion: true,
+        showObjectiveLine: true,
+      };
+      tab.viewport = { xMin: -0.5, xMax: 10, yMin: -0.5, yMax: 9 };
+      return tab;
+    },
+  },
+  {
+    id: 'descent-methods',
+    mode: 'optimisation',
+    title: 'Momentum on a banana',
+    blurb:
+      "Rosenbrock's valley is curved, so the gradient almost never points along it. Switch the method to plain gradient descent and watch the same run stall.",
+    build: () => {
+      const tab = makeTab('optimisation', 'Rosenbrock');
+      tab.optimisation = {
+        ...tab.optimisation,
+        view: 'descent',
+        surface: '(1 - x)^2 + 100*(y - x^2)^2',
+        method: 'momentum',
+        rate: 0.001,
+        momentum: 0.92,
+        descentSteps: 3000,
+        startX: -1.5,
+        startY: 2.2,
+        showContours: true,
+        contourCount: 18,
+      };
+      tab.viewport = { xMin: -2, xMax: 2, yMin: -0.6, yMax: 3 };
+      return tab;
+    },
+  },
+  {
+    id: 'lagrange-box',
+    mode: 'optimisation',
+    title: 'The largest rectangle in an ellipse',
+    blurb:
+      'Maximise xy on x²/4 + y² = 1. The multiplier condition is drawn as two arrows lying on the same line, which is the entire method.',
+    build: () => {
+      const tab = makeTab('optimisation', 'Lagrange');
+      tab.optimisation = {
+        ...tab.optimisation,
+        view: 'lagrange',
+        /* The quarter-rectangle of largest area inside the ellipse sits at
+         * x = √2, y = 1/√2, where xy = 1. Worth having as an example because
+         * the constraint is not a circle: ∇g is no longer radial, so the two
+         * arrows agreeing is visibly a statement about directions rather than
+         * a coincidence of symmetry. */
+        objective: 'x*y',
+        constraint: 'x^2/4 + y^2 - 1',
+        showGradients: true,
+        showContours: true,
+        contourCount: 16,
+      };
+      tab.viewport = { xMin: -2.6, xMax: 2.6, yMin: -1.6, yMax: 1.6 };
+      return tab;
+    },
+  },
+
+  // ---------------------------------------------------------------- reactions
+
+  {
+    id: 'consecutive-reaction',
+    mode: 'reactions',
+    title: 'The intermediate that never wins',
+    blurb:
+      'A → B → C. B is in neither the reactants nor the products, rises to a maximum and falls again — and where that maximum sits depends only on the ratio of the two rate constants.',
+    build: () => {
+      const tab = makeTab('reactions', 'A → B → C');
+      tab.reactions = {
+        ...tab.reactions,
+        view: 'kinetics',
+        reactions: [
+          { id: uid('rxn'), equation: 'A -> B', forward: 0.8, reverse: 0, activationForward: 50, activationReverse: 60, enabled: true },
+          { id: uid('rxn'), equation: 'B -> C', forward: 0.15, reverse: 0, activationForward: 60, activationReverse: 70, enabled: true },
+        ],
+        initial: { A: 1, B: 0, C: 0 },
+        duration: 40,
+        samples: 500,
+      };
+      /* B peaks at t = ln(k₁/k₂)/(k₁ − k₂) = 2.58 s, at 0.71. Both follow from
+       * the closed solution and neither is anywhere in the code — the curves
+       * come out of integrating the rate laws. */
+      tab.viewport = { xMin: 0, xMax: 40, yMin: -0.05, yMax: 1.05 };
+      tab.timeline = { ...tab.timeline, tMax: 40, speed: playbackSpeed(40) };
+      return tab;
+    },
+  },
+  {
+    id: 'le-chatelier',
+    mode: 'reactions',
+    title: 'Le Chatelier, watched rather than quoted',
+    blurb:
+      'The Haber equilibrium settles, then more nitrogen is added halfway through. Everything moves; K does not.',
+    build: () => {
+      const tab = makeTab('reactions', 'Le Chatelier');
+      tab.reactions = {
+        ...tab.reactions,
+        view: 'equilibrium',
+        reactions: [
+          {
+            id: uid('rxn'),
+            equation: 'N2 + 3H2 <-> 2NH3',
+            forward: 0.6,
+            reverse: 0.15,
+            activationForward: 60,
+            activationReverse: 110,
+            enabled: true,
+          },
+        ],
+        initial: { N2: 1, H2: 3, NH3: 0 },
+        duration: 30,
+        samples: 600,
+        // Added once the system has plainly stopped moving, so the shift after
+        // it cannot be mistaken for the approach still finishing.
+        perturbation: { at: 15, species: 'N2', amount: 0.5, enabled: true },
+      };
+      tab.viewport = { xMin: 0, xMax: 30, yMin: -0.1, yMax: 3.3 };
+      tab.timeline = { ...tab.timeline, tMax: 30, speed: playbackSpeed(30) };
+      return tab;
+    },
+  },
+  {
+    id: 'diprotic-titration',
+    mode: 'reactions',
+    title: 'A diprotic acid, two steps',
+    blurb:
+      'Carbonic acid against sodium hydroxide. Two equivalence points, two buffer plateaus, and the second is so much weaker that its jump nearly disappears.',
+    build: () => {
+      const tab = makeTab('reactions', 'Titration');
+      tab.reactions = {
+        ...tab.reactions,
+        view: 'titration',
+        acidConcentration: 0.1,
+        acidVolume: 25,
+        baseConcentration: 0.1,
+        /* Carbonic acid: Ka₁ = 4.3×10⁻⁷ (pKa 6.37) and Ka₂ = 4.7×10⁻¹¹
+         * (pKa 10.33). The plateaus sit at those two pKa values and the
+         * equivalence points at 25 and 50 mL — none of which is drawn in, they
+         * are what solving the charge balance at each volume produces. */
+        ka: [4.3e-7, 4.7e-11],
+        acidInFlask: true,
+        titrantVolume: 70,
+        showEquivalence: true,
+        showBuffer: true,
+      };
+      tab.viewport = { xMin: 0, xMax: 70, yMin: 0, yMax: 14 };
+      return tab;
+    },
+  },
+
+  // ----------------------------------------------------------- thermodynamics
+
+  {
+    id: 'maxwell-emerges',
+    mode: 'thermodynamics',
+    title: 'Maxwell–Boltzmann out of nothing',
+    blurb:
+      'Every particle starts at exactly the same speed. Press play: collisions alone spread them onto the analytic curve, which nothing in the simulation has ever been told.',
+    build: () => {
+      const tab = makeTab('thermodynamics', 'Maxwell');
+      tab.thermodynamics = {
+        ...tab.thermodynamics,
+        view: 'speeds',
+        count: 900,
+        boxWidth: 1.4,
+        boxHeight: 1.4,
+        radius: 0.014,
+        temperature: 1,
+        // Insulated, so the energy — and therefore the temperature the curve
+        // is drawn at — never moves while the distribution forms.
+        thermostat: 0,
+        identicalSpeeds: true,
+        histogramBins: 28,
+        showMaxwell: true,
+      };
+      tab.timeline = { ...tab.timeline, tMax: 20, playing: true, speed: playbackSpeed(20) };
+      return tab;
+    },
+  },
+  {
+    id: 'adiabatic-squeeze',
+    mode: 'thermodynamics',
+    title: 'Squeezing a gas hot',
+    blurb:
+      'The side walls close in on an insulated box. A wall moving towards a disc sends it back faster, so the gas heats — with no adiabatic formula anywhere in the calculation.',
+    build: () => {
+      const tab = makeTab('thermodynamics', 'Compression');
+      tab.thermodynamics = {
+        ...tab.thermodynamics,
+        view: 'box',
+        count: 420,
+        boxWidth: 1.6,
+        boxHeight: 1,
+        radius: 0.012,
+        temperature: 1,
+        thermostat: 0,
+        // Slow next to the collision rate, so the two directions keep sharing
+        // the work and the gas stays thermalised as it is compressed.
+        pistonSpeed: -0.03,
+        colourBySpeed: true,
+        showTrails: false,
+      };
+      /* γ = 2 in two dimensions, so the invariant is simply TA. Halving the
+       * area doubles the temperature, and the readout shows TA holding while
+       * both of its factors move. */
+      tab.timeline = { ...tab.timeline, tMax: 25, playing: true, speed: playbackSpeed(25) };
+      return tab;
+    },
+  },
+  {
+    id: 'otto-cycle',
+    mode: 'thermodynamics',
+    title: 'The petrol engine on a PV diagram',
+    blurb:
+      'Adiabatic squeeze, constant-volume burn, adiabatic push, constant-volume exhaust — with an efficiency that comes out of work over heat rather than out of a formula.',
+    build: () => {
+      const tab = makeTab('thermodynamics', 'Otto cycle');
+      const R = 8.314462618;
+      const dof = 5;
+      const gamma = (dof + 2) / dof;
+      const ratio = 8;
+      const v2 = 1 / ratio;
+      const t2 = 300 * ratio ** (gamma - 1);
+      // Ignition triples the temperature at constant volume; the exhaust leg
+      // has to come back to the starting pressure for the loop to close.
+      const p3 = (1 * R * 3 * t2) / v2;
+      const p1 = (1 * R * 300) / 1;
+      tab.thermodynamics = {
+        ...tab.thermodynamics,
+        view: 'cycle',
+        cycle: [
+          { id: uid('leg'), kind: 'adiabatic', target: v2, label: 'Compression stroke' },
+          { id: uid('leg'), kind: 'isochoric', target: p3, label: 'Ignition' },
+          { id: uid('leg'), kind: 'adiabatic', target: 1, label: 'Power stroke' },
+          { id: uid('leg'), kind: 'isochoric', target: p1, label: 'Exhaust' },
+        ],
+        startVolume: 1,
+        startTemperature: 300,
+        moles: 1,
+        degreesOfFreedom: dof,
+        showCarnot: true,
+      };
+      /* η = 1 − r^(1−γ) = 56.5% for a compression ratio of 8 — a closed form
+       * the tracer has no access to, since it only ever integrates P dV and
+       * applies the first law. */
       return tab;
     },
   },

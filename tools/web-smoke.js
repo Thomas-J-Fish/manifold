@@ -191,7 +191,7 @@ async function main() {
   await page.keyboard.press('Escape');
 
   step('Every mode opens');
-  for (const id of ['statistics', 'linear-algebra', 'monte-carlo', 'calculus', 'dynamics', 'fields', 'fitting', 'circuits', 'quantum', 'chemistry', 'waves', 'signals']) {
+  for (const id of ['statistics', 'linear-algebra', 'monte-carlo', 'calculus', 'dynamics', 'fields', 'fitting', 'circuits', 'quantum', 'chemistry', 'waves', 'signals', 'optimisation', 'reactions', 'thermodynamics']) {
     await selectMode(page, id);
     const result = await canvasHasContent(page);
     check(`${id} renders`, result.ok, result.reason);
@@ -228,21 +228,54 @@ async function main() {
       : signalsText.replace(/\s+/g, ' ').slice(0, 900),
   );
 
+  /* And the three newest ones, each checked by a number that only comes out
+   * right if the simulation behind it actually ran in this build. */
+  await selectMode(page, 'optimisation');
+  await page.waitForTimeout(1100);
+  const optText = await page.locator('body').innerText();
+  check(
+    'optimisation: the simplex reaches 21 at (3, 1.5)',
+    /Status\s+optimal/.test(optText) && /Objective\s+21\b/.test(optText),
+    optText.slice(0, 300),
+  );
+
+  await selectMode(page, 'reactions');
+  await page.waitForTimeout(1400);
+  const rxnText = await page.locator('body').innerText();
+  // A → B → C for 25 s at k₁ = 0.5: [A] must be down to about 4×10⁻⁶.
+  const finalA = /\[A\] final\s+([\d.eE+-]+)/.exec(rxnText);
+  check(
+    'reactions: the network integrated to completion',
+    finalA && Number(finalA[1]) < 1e-4,
+    finalA ? finalA[1] : rxnText.slice(0, 300),
+  );
+
+  await selectMode(page, 'thermodynamics');
+  await page.waitForTimeout(1600);
+  const gasText = await page.locator('body').innerText();
+  // In two dimensions T = ⟨mv²⟩/2k, and the gas is seeded at exactly 1.
+  const gasT = /Temperature\s+([\d.]+)/.exec(gasText);
+  check(
+    'thermodynamics: the gas measures the temperature it was seeded at',
+    gasT && Math.abs(Number(gasT[1]) - 1) < 0.12,
+    gasT ? gasT[1] : gasText.slice(0, 300),
+  );
+
   step('The example catalogue');
 
   {
-    /* Forty-nine examples behind fourteen dropdowns. The thing worth asserting
-     * is not that the dialog opens but that every mode has a group with a
-     * usable number in it — a mode whose heading is there and whose list is
-     * empty is exactly what an unnoticed regression looks like. */
+    /* Fifty-nine examples behind seventeen dropdowns. The thing worth
+     * asserting is not that the dialog opens but that every mode has a group
+     * with a usable number in it — a mode whose heading is there and whose
+     * list is empty is exactly what an unnoticed regression looks like. */
     await page.click('button[data-menu="Help"]');
     await page.click('button[data-command="help.examples"]');
     await page.waitForSelector('[data-example-group]', { timeout: 8000 });
 
     const groups = await page.locator('[data-example-group]').count();
-    check('there is a group for every mode', groups === 14, `${groups} groups`);
+    check('there is a group for every mode', groups === 17, `${groups} groups`);
     check(
-      'and they start closed, so the list is not a wall of forty-nine cards',
+      'and they start closed, so the list is not a wall of fifty-nine cards',
       (await page.locator('button[data-example]').count()) === 0,
       `${await page.locator('button[data-example]').count()} shown`,
     );

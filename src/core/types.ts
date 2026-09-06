@@ -26,7 +26,10 @@ export type TabMode =
   | 'quantum'
   | 'chemistry'
   | 'waves'
-  | 'signals';
+  | 'signals'
+  | 'optimisation'
+  | 'reactions'
+  | 'thermodynamics';
 
 export interface ModeInfo {
   id: TabMode;
@@ -156,6 +159,30 @@ export const MODES: ModeInfo[] = [
     blurb: 'Spectra, spectrograms, filters with their poles and Bode plots, and aliasing you can hear coming.',
     surface: 'custom',
     supportsTimeline: false,
+  },
+  {
+    id: 'optimisation',
+    name: 'Optimisation',
+    short: 'Optimise',
+    blurb: 'Linear programs with the simplex path across the feasible region, gradient descent, and Lagrange multipliers drawn.',
+    surface: 'custom',
+    supportsTimeline: false,
+  },
+  {
+    id: 'reactions',
+    name: 'Chemical Reactions',
+    short: 'Kinetics',
+    blurb: 'Reaction networks integrated as ODEs, equilibria you can perturb, titration curves and Arrhenius.',
+    surface: 'custom',
+    supportsTimeline: true,
+  },
+  {
+    id: 'thermodynamics',
+    name: 'Thermodynamics',
+    short: 'Thermo',
+    blurb: 'A box of particles you compress and heat, Maxwell–Boltzmann emerging from it, and PV cycles.',
+    surface: 'custom',
+    supportsTimeline: true,
   },
 ];
 
@@ -545,6 +572,89 @@ export interface SignalsConfig {
   sampleFrequency: number;
 }
 
+export interface OptimisationConfig {
+  view: 'linear' | 'descent' | 'lagrange';
+  // ---- linear programming
+  program: import('./math/optimise').LinearProgram;
+  /** How far along the simplex path the picture has been stepped. */
+  simplexStep: number;
+  showRegion: boolean;
+  /** Draw the objective's level line through the current corner. */
+  showObjectiveLine: boolean;
+  // ---- gradient descent
+  surface: string;
+  method: import('./math/optimise').DescentMethod;
+  rate: number;
+  momentum: number;
+  descentSteps: number;
+  startX: number;
+  startY: number;
+  showContours: boolean;
+  contourCount: number;
+  // ---- Lagrange
+  objective: string;
+  constraint: string;
+  showGradients: boolean;
+  showEquations: boolean;
+}
+
+export interface ReactionsConfig {
+  view: 'kinetics' | 'equilibrium' | 'titration' | 'arrhenius';
+  reactions: import('./chemistry/reactions').Reaction[];
+  /** Starting concentration per species, by name. */
+  initial: Record<string, number>;
+  duration: number;
+  samples: number;
+  /** Rate constants from the Arrhenius equation rather than typed directly. */
+  useArrhenius: boolean;
+  temperature: number;
+  perturbation: import('./chemistry/reactions').Perturbation;
+  showEquilibrium: boolean;
+  logScale: boolean;
+  // ---- titration
+  acidConcentration: number;
+  acidVolume: number;
+  baseConcentration: number;
+  /** Successive Ka values, strongest first. */
+  ka: number[];
+  acidInFlask: boolean;
+  titrantVolume: number;
+  showEquivalence: boolean;
+  showBuffer: boolean;
+  // ---- Arrhenius
+  arrheniusFrom: number;
+  arrheniusTo: number;
+}
+
+export interface ThermoConfig {
+  view: 'box' | 'speeds' | 'cycle' | 'gaslaw';
+  count: number;
+  boxWidth: number;
+  boxHeight: number;
+  radius: number;
+  particleMass: number;
+  temperature: number;
+  /** Zero for a perfectly insulated box, which is what adiabatic needs. */
+  thermostat: number;
+  gravity: number;
+  seed: string;
+  /** Every particle at the same speed, so the distribution has to form. */
+  identicalSpeeds: boolean;
+  /** Rate the walls move, negative to compress. */
+  pistonSpeed: number;
+  histogramBins: number;
+  showMaxwell: boolean;
+  showTrails: boolean;
+  colourBySpeed: boolean;
+  // ---- PV cycle
+  cycle: import('./physics/thermo').CycleLeg[];
+  startVolume: number;
+  startTemperature: number;
+  moles: number;
+  degreesOfFreedom: number;
+  showCarnot: boolean;
+}
+
 export type ElementProperty =
   | 'category'
   | 'mass'
@@ -602,6 +712,9 @@ export interface TabState {
   chemistry: ChemistryConfig;
   waves: WavesConfig;
   signals: SignalsConfig;
+  optimisation: OptimisationConfig;
+  reactions: ReactionsConfig;
+  thermodynamics: ThermoConfig;
 }
 
 export interface ProjectMeta {

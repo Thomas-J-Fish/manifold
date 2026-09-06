@@ -36,7 +36,23 @@ export function useSquareScales(
   useEffect(() => {
     if (!enabled) return undefined;
 
+    /* Read the viewport as it is *now*, not as it was when this render began.
+     *
+     * A mode that reframes itself — switching from a feasible region to a
+     * constraint curve, say — does so in its own effect, which runs before
+     * this one in the same commit. Squaring the argument passed in at render
+     * time would then write the *old* rectangle back over the new one, and
+     * because the reframe is keyed on the view it never runs again: the mode
+     * silently keeps the previous view's frame. Taking the live value means
+     * this only ever adjusts whatever the last word was. */
+    const live = (): Viewport => {
+      const state = useStore.getState();
+      const tab = state.project.tabs.find((t) => t.id === state.project.activeTabId);
+      return tab?.viewport ?? viewport;
+    };
+
     const apply = (): boolean => {
+      const viewport = live();
       const aspect = plotRef.current?.plotAspect?.();
       /* The plot reports its aspect only once it has drawn, because the plot
        * area's width depends on how wide the axis labels turned out. On a

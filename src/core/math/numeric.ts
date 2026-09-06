@@ -405,9 +405,14 @@ export interface AdaptiveOptions {
   rtol?: number;
   atol?: number;
   maxSteps?: number;
-  /** Force output at these times by interpolating between accepted steps. */
-  dense?: number[];
 }
+
+/* There is no `dense` option here on purpose. One was declared once and never
+ * implemented, so a caller that asked for output on its own time grid got the
+ * integrator's adaptive steps instead and silently indexed off the end of
+ * them. Resample the returned trajectory with `resampleTrajectory` instead —
+ * it is the same interpolation, and it cannot be mistaken for a promise the
+ * integrator is keeping. */
 
 /** Adaptive Dormand–Prince integrator; the default for stiff-looking systems
  *  such as Lorenz where a fixed grid either blows up or wastes work. */

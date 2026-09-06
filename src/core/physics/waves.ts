@@ -183,6 +183,10 @@ export interface WaveWorld {
   /** Object distance in mm; 0 or less means parallel light. */
   objectDistance: number;
   rayAngle: number;
+  /** Trace the fan at several wavelengths instead of one. */
+  dispersion: boolean;
+  /** How many wavelengths to trace when it is on. */
+  spectrumLines: number;
 }
 
 export interface Slit {
@@ -546,11 +550,47 @@ export interface Surface {
   tilt: number;
   /** Half-height of the surface, in mm. */
   aperture: number;
-  /** Refractive index *after* the surface. */
+  /** Refractive index *after* the surface, at the sodium d line (587.6 nm). */
   index: number;
+  /**
+   * Abbe number V_d of the material after the surface, or 0 for none.
+   *
+   * This is the one number that turns a glass from a single index into a
+   * dispersion curve, and it is the number opticians actually quote: crown
+   * glass is about 64, dense flint about 25, and a smaller V means the glass
+   * separates colours more strongly. Zero means "no dispersion" — the index is
+   * used unchanged at every wavelength, which is the right default for a
+   * demonstration about geometry rather than about colour.
+   */
+  abbe: number;
   /** A mirror reflects rather than refracts. */
   mirror: boolean;
   label: string;
+}
+
+/* The three Fraunhofer lines the Abbe number is defined against. */
+const LINE_F = 486.13;
+const LINE_D = 587.56;
+const LINE_C = 656.27;
+
+/**
+ * Refractive index at a wavelength, from the index at the d line and the Abbe
+ * number, by Cauchy's two-term formula n(λ) = A + B/λ².
+ *
+ * The Abbe number is *defined* as V = (n_d − 1)/(n_F − n_C), so it fixes B:
+ *
+ *   n_F − n_C = B(1/λ_F² − 1/λ_C²) = (n_d − 1)/V
+ *
+ * and then A follows from n(λ_d) = n_d. Nothing here is fitted or invented —
+ * given the two numbers a glass catalogue prints, this is the curve they
+ * imply, and with V = 0 it degenerates to the constant index it started from.
+ */
+export function dispersedIndex(indexD: number, abbe: number, wavelengthNm: number): number {
+  if (!(abbe > 0) || !Number.isFinite(abbe)) return indexD;
+  const nm = Math.max(200, Math.min(2000, wavelengthNm));
+  const b = (indexD - 1) / (abbe * (1 / (LINE_F * LINE_F) - 1 / (LINE_C * LINE_C)));
+  const a = indexD - b / (LINE_D * LINE_D);
+  return a + b / (nm * nm);
 }
 
 export interface RaySegment {
@@ -559,6 +599,10 @@ export interface RaySegment {
   stopped: 'aperture' | 'reflected' | null;
   /** Whether it was ever totally internally reflected. */
   totalInternal: boolean;
+  /** The wavelength this ray was traced at, in nm — what its colour means. */
+  wavelength: number;
+  /** Height in the entrance fan, in mm. Rays at ±h are mirror images. */
+  height: number;
 }
 
 /**
@@ -571,12 +615,18 @@ export interface RaySegment {
  * to have a solution and simply cannot appear in a linear model, and spherical
  * aberration, which is the difference between where the edge of a lens sends a
  * ray and where the middle does.
+ *
+ * `wavelengthNm` picks the index each glass is evaluated at. Trace the same
+ * fan at several wavelengths and the difference between the results is
+ * dispersion — a prism's spectrum, or a lens's chromatic aberration — which is
+ * a property of the glasses rather than anything this function knows about.
  */
-export function traceRays(world: WaveWorld): RaySegment[] {
+export function traceRays(world: WaveWorld, wavelengthNm = LINE_D): RaySegment[] {
   const surfaces = [...world.surfaces].sort((a, b) => a.z - b.z);
   const rays: RaySegment[] = [];
   const count = Math.max(1, Math.min(64, Math.round(world.rayCount)));
   const far = surfaces.length ? surfaces[surfaces.length - 1].z + 120 : 200;
+  const indexOf = (s: Surface) => dispersedIndex(s.index, s.abbe, wavelengthNm);
 
   for (let i = 0; i < count; i++) {
     const t = count === 1 ? 0 : (2 * i) / (count - 1) - 1;
@@ -645,7 +695,8 @@ export function traceRays(world: WaveWorld): RaySegment[] {
         break;
       }
 
-      const refracted = refract(dz, dy, nz, ny, index, surface.index);
+      const after = indexOf(surface);
+      const refracted = refract(dz, dy, nz, ny, index, after);
       if (!refracted) {
         totalInternal = true;
         const dot = dz * nz + dy * ny;
@@ -654,7 +705,7 @@ export function traceRays(world: WaveWorld): RaySegment[] {
       } else {
         dz = refracted.dz;
         dy = refracted.dy;
-        index = surface.index;
+        index = after;
       }
     }
 
@@ -662,9 +713,30 @@ export function traceRays(world: WaveWorld): RaySegment[] {
       const run = far - z;
       points.push({ z: far, y: y + (dy / (dz || 1e-9)) * run });
     }
-    rays.push({ points, stopped, totalInternal });
+    rays.push({ points, stopped, totalInternal, wavelength: wavelengthNm, height: t * world.rayHeight });
   }
   return rays;
+}
+
+/**
+ * The same fan traced at several wavelengths across the visible band.
+ *
+ * One trace per wavelength, so every ray carries the wavelength it was
+ * computed at and can be drawn in that colour honestly. With no dispersive
+ * glass in the stack every trace comes back identical, which is the correct
+ * answer rather than a special case: a spectrum only appears when a material
+ * has an Abbe number to make one.
+ */
+export function traceSpectrum(world: WaveWorld, lines: number): RaySegment[] {
+  const n = Math.max(2, Math.min(24, Math.round(lines)));
+  const out: RaySegment[] = [];
+  // 400–680 nm: the band where the eye has colour to assign, so the picture
+  // reads as a spectrum rather than as an arbitrary set of curves.
+  for (let i = 0; i < n; i++) {
+    const nm = 400 + ((680 - 400) * i) / (n - 1);
+    for (const ray of traceRays(world, nm)) out.push(ray);
+  }
+  return out;
 }
 
 /** Unit normal of a flat surface, pointing back along the axis when untilted. */

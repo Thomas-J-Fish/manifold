@@ -7,6 +7,7 @@ import {
   createWaveField,
   criticalAngle,
   diffractionPattern,
+  dispersedIndex,
   fraunhoferPattern,
   groupVelocity,
   lensmaker,
@@ -14,6 +15,7 @@ import {
   reflectionCoefficient,
   thinLensImage,
   traceRays,
+  traceSpectrum,
   type Slit,
   type Surface,
   type WaveWorld,
@@ -582,5 +584,149 @@ describe('the clock a simulation is played against', () => {
     // And the middle of the scrubber is the middle of the run, within a frame,
     // rather than already pinned to the end.
     expect(Math.abs(frameAt(tab.timeline.tMax / 2) - (field.count - 1) / 2)).toBeLessThan(2);
+  });
+});
+
+describe('dispersion', () => {
+  it('reproduces the Abbe number it was given', () => {
+    /* V is *defined* as (n_d − 1)/(n_F − n_C), so a Cauchy curve built from
+     * (n_d, V) must give that V back when you measure it at the three
+     * Fraunhofer lines. This is the one identity the whole construction has to
+     * satisfy, and it fails for any B that was fitted or guessed. */
+    for (const [nd, v] of [
+      [1.5168, 64.17],
+      [1.7847, 25.68],
+      [1.6259, 35.7],
+      [1.4585, 67.8],
+    ] as [number, number][]) {
+      const nF = dispersedIndex(nd, v, 486.13);
+      const nC = dispersedIndex(nd, v, 656.27);
+      expect(dispersedIndex(nd, v, 587.56)).toBeCloseTo(nd, 12);
+      expect((nd - 1) / (nF - nC)).toBeCloseTo(v, 6);
+    }
+  });
+
+  it('bends blue more than red, and not the other way round', () => {
+    // Normal dispersion: n falls as wavelength rises, across the whole band.
+    let previous = Infinity;
+    for (let nm = 380; nm <= 750; nm += 10) {
+      const n = dispersedIndex(1.5168, 64.17, nm);
+      expect(n).toBeLessThan(previous);
+      previous = n;
+    }
+  });
+
+  it('does nothing at all when the Abbe number is zero', () => {
+    for (const nm of [400, 500, 600, 700]) {
+      expect(dispersedIndex(1.5, 0, nm)).toBe(1.5);
+      expect(dispersedIndex(1.5, -3, nm)).toBe(1.5);
+    }
+  });
+
+  it('splits white light through a prism, and by more for flint than crown', () => {
+    /* The physical claim: a prism separates colours, the separation grows as
+     * the Abbe number falls, and a glass with no dispersion separates nothing.
+     * Measured as the spread in exit angle across the visible band. */
+    const prism = (index: number, abbe: number): WaveWorld =>
+      world({
+        view: 'rays',
+        surfaces: [
+          /* A 20° wedge. Steeper than about 22° and the flint stops
+           * transmitting at all — its higher index gives it a lower critical
+           * angle — which is real, and would make this a test of total
+           * internal reflection instead of one of dispersion. */
+          { id: 'in', z: 0, radius: 0, tilt: -20, aperture: 40, index, abbe, mirror: false, label: '' },
+          { id: 'out', z: 30, radius: 0, tilt: 20, aperture: 40, index: 1, abbe: 0, mirror: false, label: '' },
+        ],
+        rayCount: 1,
+        rayHeight: 0,
+        objectDistance: 0,
+        rayAngle: 0,
+      });
+
+    const spreadOf = (index: number, abbe: number) => {
+      const angles = traceSpectrum(prism(index, abbe), 9)
+        .filter((r) => r.stopped === null && !r.totalInternal)
+        .map((r) => {
+          const p = r.points;
+          const a = p[p.length - 2];
+          const b = p[p.length - 1];
+          return Math.atan2(b.y - a.y, b.z - a.z);
+        });
+      return angles.length > 1 ? Math.max(...angles) - Math.min(...angles) : 0;
+    };
+
+    const none = spreadOf(1.5168, 0);
+    const crown = spreadOf(1.5168, 64.17);
+    const flint = spreadOf(1.7847, 25.68);
+
+    expect(none).toBeCloseTo(0, 12);
+    expect(crown).toBeGreaterThan(1e-4);
+    // Flint spreads a spectrum about five times wider than crown at the same
+    // wedge angle — which is why an achromatic doublet pairs one of each to
+    // cancel the colour while keeping the power.
+    expect(flint / crown).toBeGreaterThan(4);
+    expect(flint / crown).toBeLessThan(8);
+  });
+
+  it('gives a lens a red focus beyond its blue one', () => {
+    // Longitudinal chromatic aberration: blue refracts more, so it focuses
+    // short. For a singlet the shift is roughly f/V.
+    const nd = 1.5168;
+    const abbe = 64.17;
+    const lens = world({
+      view: 'rays',
+      surfaces: [
+        { id: 'a', z: 0, radius: 60, tilt: 0, aperture: 20, index: nd, abbe, mirror: false, label: '' },
+        { id: 'b', z: 4, radius: -60, tilt: 0, aperture: 20, index: 1, abbe: 0, mirror: false, label: '' },
+      ],
+      rayCount: 3,
+      rayHeight: 1.5,
+      objectDistance: 0,
+      rayAngle: 0,
+    });
+    const focusAt = (nm: number) => {
+      const c = axisCrossings(traceRays(lens, nm));
+      return c.reduce((a, b) => a + b, 0) / c.length;
+    };
+    const blue = focusAt(486.13);
+    const red = focusAt(656.27);
+    const middle = focusAt(587.56);
+
+    expect(red).toBeGreaterThan(blue);
+    expect(blue).toBeLessThan(middle);
+    expect(red).toBeGreaterThan(middle);
+    // f/V is the standard estimate for a thin singlet's chromatic spread.
+    expect((red - blue) / (middle / abbe)).toBeGreaterThan(0.6);
+    expect((red - blue) / (middle / abbe)).toBeLessThan(1.6);
+  });
+
+  it('carries the wavelength and the fan height on every ray it returns', () => {
+    // The renderer colours by `wavelength` and relies on rays at ±h being
+    // mirror images; both have to actually be there.
+    const lens = world({
+      view: 'rays',
+      surfaces: [
+        { id: 'a', z: 0, radius: 60, tilt: 0, aperture: 20, index: 1.5, abbe: 0, mirror: false, label: '' },
+        { id: 'b', z: 4, radius: -60, tilt: 0, aperture: 20, index: 1, abbe: 0, mirror: false, label: '' },
+      ],
+      rayCount: 5,
+      rayHeight: 8,
+      objectDistance: 0,
+      rayAngle: 0,
+    });
+    const rays = traceRays(lens, 550);
+    expect(rays.every((r) => r.wavelength === 550)).toBe(true);
+    expect(rays.map((r) => Number(r.height.toFixed(6)))).toEqual([-8, -4, 0, 4, 8]);
+
+    // And the fan is symmetric: the ray at +h ends as the mirror of the one
+    // at −h, which is what makes colouring by wavelength look right.
+    const last = (r: (typeof rays)[number]) => r.points[r.points.length - 1];
+    expect(last(rays[0]).y).toBeCloseTo(-last(rays[4]).y, 9);
+    expect(last(rays[0]).z).toBeCloseTo(last(rays[4]).z, 9);
+
+    const spectrum = traceSpectrum(lens, 5);
+    expect(spectrum.length).toBe(25);
+    expect(new Set(spectrum.map((r) => r.wavelength)).size).toBe(5);
   });
 });

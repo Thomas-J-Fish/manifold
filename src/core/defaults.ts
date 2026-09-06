@@ -14,6 +14,9 @@ import {
   type CircuitConfig,
   type MechanicsConfig,
   type QuantumConfig,
+  type OptimisationConfig,
+  type ReactionsConfig,
+  type ThermoConfig,
   type SignalsConfig,
   type WavesConfig,
   type DynamicsConfig,
@@ -466,14 +469,20 @@ export function defaultWaves(): WavesConfig {
       screenWidth: 0.03,
       sourceDistance: 0,
       // A biconvex lens of focal length 60 mm, ten millimetres thick.
+      // BK7 crown glass: n_d = 1.5168, V_d = 64.2, the commonest lens glass
+      // there is. The Abbe number is carried on the surface so turning
+      // dispersion on shows this lens's real chromatic aberration rather than
+      // a made-up one.
       surfaces: [
-        { id: 'front', z: 0, radius: 60, tilt: 0, aperture: 18, index: 1.5, mirror: false, label: 'Front' },
-        { id: 'back', z: 10, radius: -60, tilt: 0, aperture: 18, index: 1, mirror: false, label: 'Back' },
+        { id: 'front', z: 0, radius: 60, tilt: 0, aperture: 18, index: 1.5168, abbe: 64.2, mirror: false, label: 'Front' },
+        { id: 'back', z: 10, radius: -60, tilt: 0, aperture: 18, index: 1, abbe: 0, mirror: false, label: 'Back' },
       ],
       rayCount: 11,
       rayHeight: 14,
       objectDistance: 0,
       rayAngle: 0,
+      dispersion: false,
+      spectrumLines: 7,
     },
     // Nothing selected, as every other sandbox opens: the default view is the
     // propagating one, which has no slit list on screen to select from.
@@ -481,6 +490,139 @@ export function defaultWaves(): WavesConfig {
     showAnalytic: true,
     showEquations: true,
     logIntensity: false,
+  };
+}
+
+export function defaultOptimisation(): OptimisationConfig {
+  return {
+    view: 'linear',
+    /* The carpenter's problem, which is the one every course starts with:
+     * maximise 5x + 4y with 6x + 4y ≤ 24 and x + 2y ≤ 6. The optimum is at
+     * (3, 1.5) and the simplex reaches it in two pivots, so the path is short
+     * enough to follow and long enough to be a path. */
+    program: {
+      objective: [5, 4],
+      maximise: true,
+      nonNegative: true,
+      constraints: [
+        { id: uid('con'), coefficients: [6, 4], relation: '<=', rhs: 24, label: 'Machine hours' },
+        { id: uid('con'), coefficients: [1, 2], relation: '<=', rhs: 6, label: 'Timber' },
+      ],
+    },
+    simplexStep: -1,
+    showRegion: true,
+    showObjectiveLine: true,
+    // Rosenbrock: the standard test of a descent method, because the valley is
+    // curved and the gradient almost never points along it.
+    surface: '(1 - x)^2 + 100*(y - x^2)^2',
+    method: 'momentum',
+    rate: 0.001,
+    momentum: 0.9,
+    descentSteps: 2000,
+    startX: -1.2,
+    startY: 1,
+    showContours: true,
+    contourCount: 14,
+    objective: 'x + y',
+    constraint: 'x^2 + y^2 - 1',
+    showGradients: true,
+    showEquations: true,
+  };
+}
+
+export function defaultReactions(): ReactionsConfig {
+  return {
+    view: 'kinetics',
+    /* A → B → C, the consecutive reaction. It is the smallest network whose
+     * behaviour is not obvious from the equations: B is not in the answer, it
+     * rises and then falls, and where its maximum sits depends on the ratio of
+     * the two rate constants rather than on either one. */
+    reactions: [
+      {
+        id: uid('rxn'),
+        equation: 'A -> B',
+        forward: 0.5,
+        reverse: 0,
+        activationForward: 50,
+        activationReverse: 60,
+        enabled: true,
+      },
+      {
+        id: uid('rxn'),
+        equation: 'B -> C',
+        forward: 0.2,
+        reverse: 0,
+        activationForward: 60,
+        activationReverse: 70,
+        enabled: true,
+      },
+    ],
+    initial: { A: 1, B: 0, C: 0 },
+    duration: 25,
+    samples: 400,
+    useArrhenius: false,
+    temperature: 298,
+    perturbation: { at: 0, species: 'A', amount: 0.5, enabled: false },
+    showEquilibrium: true,
+    logScale: false,
+    // 0.1 M acetic acid with 0.1 M NaOH: the textbook weak-acid titration, with
+    // a buffer plateau at pH 4.76 and equivalence up at 8.7 rather than 7.
+    acidConcentration: 0.1,
+    acidVolume: 25,
+    baseConcentration: 0.1,
+    ka: [1.75e-5],
+    acidInFlask: true,
+    titrantVolume: 50,
+    showEquivalence: true,
+    showBuffer: true,
+    arrheniusFrom: 250,
+    arrheniusTo: 400,
+  };
+}
+
+export function defaultThermo(): ThermoConfig {
+  return {
+    view: 'box',
+    /* Five hundred discs of this size exclude about eight per cent of the
+     * box's area from one another, so PA/NkT opens at roughly 1.08 — close
+     * enough to one to make the point, and not so close that the mode is
+     * pretending hard discs are ideal. Denser than this and the first screen
+     * reads 1.2, which undercuts the claim before anyone has touched a
+     * slider; much thinner and collisions get rare enough that the speed
+     * histogram takes a long time to find its shape. */
+    count: 500,
+    boxWidth: 1,
+    boxHeight: 1,
+    radius: 0.01,
+    particleMass: 1,
+    temperature: 1,
+    // Insulated by default, so compressing the box actually heats the gas
+    // rather than having the heating quietly removed again.
+    thermostat: 0,
+    gravity: 0,
+    seed: 'manifold',
+    identicalSpeeds: false,
+    pistonSpeed: 0,
+    // Twenty-four bins over five hundred samples: fine enough to show the
+    // shape, coarse enough that the noise does not read as disagreement.
+    histogramBins: 24,
+    showMaxwell: true,
+    showTrails: false,
+    colourBySpeed: true,
+    /* The Carnot cycle, with the volumes chosen so the two adiabats land on the
+     * same compression ratio and the loop closes. Anything else draws an open
+     * path, which the readout says plainly rather than pretending otherwise. */
+    cycle: [
+      { id: uid('leg'), kind: 'isothermal', target: 2, label: 'Expand at 500 K' },
+      { id: uid('leg'), kind: 'adiabatic', target: 4.3033148, label: 'Expand to 300 K' },
+      { id: uid('leg'), kind: 'isothermal', target: 2.1516574, label: 'Compress at 300 K' },
+      { id: uid('leg'), kind: 'adiabatic', target: 1, label: 'Compress to 500 K' },
+    ],
+    startVolume: 1,
+    startTemperature: 500,
+    moles: 1,
+    degreesOfFreedom: 3,
+    showCarnot: true,
   };
 }
 
@@ -572,6 +714,9 @@ const VIEWPORT_BY_MODE: Record<TabMode, Viewport> = {
   // the first frame only.
   waves: { xMin: 0, xMax: 1, yMin: -1.6, yMax: 1.6 },
   signals: { xMin: 0, xMax: 1, yMin: -1.6, yMax: 1.6 },
+  optimisation: { xMin: -1, xMax: 7, yMin: -1, yMax: 5 },
+  reactions: { xMin: 0, xMax: 10, yMin: -0.05, yMax: 1.05 },
+  thermodynamics: { xMin: 0, xMax: 1, yMin: 0, yMax: 1 },
 };
 
 export function defaultViewport(mode: TabMode): Viewport {
@@ -589,7 +734,45 @@ export function defaultViewport(mode: TabMode): Viewport {
 const TIMELINE_MAX_BY_MODE: Partial<Record<TabMode, number>> = {
   waves: defaultWaves().world.duration,
   quantum: defaultQuantum().world.duration,
+  // A → B → C is essentially over by twenty-five seconds, and the gas needs
+  // long enough for the speed histogram to find its shape.
+  reactions: defaultReactions().duration,
+  thermodynamics: 30,
 };
+
+/**
+ * How fast to play a run of this length, as a multiple of real time.
+ *
+ * The clock advances simulated seconds at wall-clock seconds, which is right
+ * for a pendulum and useless for a wave on a string: an eighty-millisecond run
+ * at 1× is over twelve times a second, and a ten-millisecond one flickers a
+ * hundred times a second and reads as a broken animation rather than as
+ * physics. Anything that already takes a couple of seconds is left alone —
+ * real time is worth something where it is watchable, and slowing a pendulum
+ * down would be a loss — and anything shorter is stretched to about five
+ * seconds on screen and *labelled* as slow motion, which is a fact about the
+ * playback the viewer should be told rather than have hidden.
+ *
+ * The result is snapped to 1, 2 or 5 times a power of ten so the number in the
+ * speed control is one a person would choose themselves.
+ */
+export function playbackSpeed(tMax: number): number {
+  const span = Math.abs(tMax);
+  if (!(span > 0) || span >= 1) return 1;
+  const wanted = span / 5;
+  const decade = 10 ** Math.floor(Math.log10(wanted));
+  let best = 1;
+  let error = Infinity;
+  for (const step of [1, 2, 5, 10]) {
+    const candidate = step * decade;
+    const miss = Math.abs(Math.log(candidate / wanted));
+    if (miss < error) {
+      error = miss;
+      best = candidate;
+    }
+  }
+  return Math.min(1, best);
+}
 
 export function makeTab(mode: TabMode = 'graphing', name?: string): TabState {
   const seedExpressions: ExpressionItem[] =
@@ -612,7 +795,10 @@ export function makeTab(mode: TabMode = 'graphing', name?: string): TabState {
     camera: { theta: 0.9, phi: 1.05, distance: 15, target: [0, 0, 0] },
     parameters: seedParameters,
     expressions: seedExpressions,
-    timeline: { t: 0, tMin: 0, tMax: TIMELINE_MAX_BY_MODE[mode] ?? 10, playing: false, speed: 1, mode: 'loop' },
+    timeline: (() => {
+      const tMax = TIMELINE_MAX_BY_MODE[mode] ?? 10;
+      return { t: 0, tMin: 0, tMax, playing: false, speed: playbackSpeed(tMax), mode: 'loop' as const };
+    })(),
     showGrid: true,
     showMinorGrid: true,
     showAxes: true,
@@ -631,10 +817,16 @@ export function makeTab(mode: TabMode = 'graphing', name?: string): TabState {
     chemistry: defaultChemistry(),
     waves: defaultWaves(),
     signals: defaultSignals(),
+    optimisation: defaultOptimisation(),
+    reactions: defaultReactions(),
+    thermodynamics: defaultThermo(),
   };
 }
 
 const NAME_BY_MODE: Record<TabMode, string> = {
+  optimisation: 'Optimise',
+  reactions: 'Reaction',
+  thermodynamics: 'Gas',
   graphing: 'Graph',
   statistics: 'Distribution',
   'linear-algebra': 'Transform',

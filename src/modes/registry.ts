@@ -22,6 +22,9 @@ import { QuantumPanel, QuantumSurface, quantumCsv } from './QuantumMode';
 import { ChemistryPanel, ChemistrySurface, chemistryCsv } from './ChemistryMode';
 import { WavesPanel, WavesSurface, wavesCsv } from './WavesMode';
 import { SignalsPanel, SignalsSurface, signalsCsv } from './SignalsMode';
+import { OptimisationPanel, OptimisationSurface, optimisationCsv } from './OptimisationMode';
+import { ReactionsPanel, ReactionsSurface, reactionsCsv } from './ReactionsMode';
+import { ThermodynamicsPanel, ThermodynamicsSurface, thermoCsv } from './ThermodynamicsMode';
 
 export interface ModeModule {
   Panel: ComponentType<{ tab: TabState }>;
@@ -45,4 +48,7 @@ export const MODE_REGISTRY: Record<TabMode, ModeModule> = {
   chemistry: { Panel: ChemistryPanel, Surface: ChemistrySurface, toCsv: () => chemistryCsv() },
   waves: { Panel: WavesPanel, Surface: WavesSurface, toCsv: wavesCsv },
   signals: { Panel: SignalsPanel, Surface: SignalsSurface, toCsv: signalsCsv },
+  optimisation: { Panel: OptimisationPanel, Surface: OptimisationSurface, toCsv: optimisationCsv },
+  reactions: { Panel: ReactionsPanel, Surface: ReactionsSurface, toCsv: reactionsCsv },
+  thermodynamics: { Panel: ThermodynamicsPanel, Surface: ThermodynamicsSurface, toCsv: thermoCsv },
 };

@@ -41,6 +41,9 @@ import type {
   ProjectFile,
   QuantumConfig,
   SignalsConfig,
+  OptimisationConfig,
+  ReactionsConfig,
+  ThermoConfig,
   StatisticsConfig,
   TabMode,
   TabState,
@@ -159,6 +162,9 @@ interface AppState {
   setChemistry: (patch: Partial<ChemistryConfig>) => void;
   setWaves: (patch: Partial<WavesConfig>) => void;
   setSignals: (patch: Partial<SignalsConfig>) => void;
+  setOptimisation: (patch: Partial<OptimisationConfig>) => void;
+  setReactions: (patch: Partial<ReactionsConfig>) => void;
+  setThermo: (patch: Partial<ThermoConfig>) => void;
 
   // --- chrome
   setSidebar: (patch: { width?: number; collapsed?: boolean }) => void;
@@ -653,6 +659,33 @@ export const useStore = create<AppState>((set, get) => ({
       project: replaceTab(s.project, s.project.activeTabId, (t) => ({
         ...t,
         waves: { ...t.waves, ...patch },
+      })),
+      dirty: true,
+    })),
+
+  setOptimisation: (patch) =>
+    set((s) => ({
+      project: replaceTab(s.project, s.project.activeTabId, (t) => ({
+        ...t,
+        optimisation: { ...t.optimisation, ...patch },
+      })),
+      dirty: true,
+    })),
+
+  setReactions: (patch) =>
+    set((s) => ({
+      project: replaceTab(s.project, s.project.activeTabId, (t) => ({
+        ...t,
+        reactions: { ...t.reactions, ...patch },
+      })),
+      dirty: true,
+    })),
+
+  setThermo: (patch) =>
+    set((s) => ({
+      project: replaceTab(s.project, s.project.activeTabId, (t) => ({
+        ...t,
+        thermodynamics: { ...t.thermodynamics, ...patch },
       })),
       dirty: true,
     })),

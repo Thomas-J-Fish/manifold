@@ -116,7 +116,7 @@ workspace saves to a single `.manifold` file.
 ### Starting a tab
 
 The **+** at the right-hand end of the tab strip — or **⌘T**, or **Tab → New
-Tab** — opens a picker listing all fourteen modes with a line of description each.
+Tab** — opens a picker listing all seventeen modes with a line of description each.
 Pick one and that tab opens configured for it: a Monte Carlo tab arrives with
 GBM already set up and a seed, a Statistics tab with a standard normal framed
 and its tail controls ready, a Linear Algebra tab with the identity matrix and
@@ -147,7 +147,7 @@ sweeps, the matrix interpolation, particle advection, PDE playback, the Riemann
 subdivision count and the Taylor order — everything animatable in the tab moves
 against the same timeline.
 
-### The fourteen modes
+### The seventeen modes
 
 | | |
 |---|---|
@@ -165,8 +165,11 @@ against the same timeline.
 | **Periodic Table** | All 118 elements, shaded by any property: radius, electronegativity, ionisation energy, melting point, density, year of discovery. Click one to open it up — the nucleus and its shells, or the actual hydrogen-like orbital the outermost electrons are filling, with its nodes. Full electron configurations, generated from the Aufbau order and the twenty elements that break it. |
 | **Waves & Optics** | Waves on a string, a mass–spring chain, air, water or light, each with its own honest dispersion relation, run by leapfrog finite differences with fixed, free or absorbing ends and a change of medium anywhere along it — so the reflected and transmitted amplitudes come out of the integration rather than out of a formula. Diffraction from any arrangement of slits by summing the Rayleigh–Sommerfeld integral over the aperture, which gives the near field as well as the far one and a diffraction grating as readily as Young's two slits, with the pattern shown as a photograph of the screen. And ray tracing through lenses, prisms and mirrors by exact vector Snell refraction, with the lens equations printed beside it for comparison — where the rays disagree with them, the rays are right. |
 | **Signal Processing** | The spectrum of a signal you type or paste, with five window functions and the leakage each one trades for resolution. A spectrogram, where the window length is the uncertainty principle made adjustable. Butterworth and Chebyshev filters designed through the analogue prototype and the bilinear transform with tangent pre-warping, shown as poles and zeros on the z-plane beside their Bode response — build an RC low-pass in the electronics sandbox, put 1/2πRC in here, and it is the same curve. And aliasing, by undersampling a tone on purpose and reconstructing what the samples actually contain. |
+| **Optimisation** | A linear program with its feasible region drawn and the simplex path traced across it one pivot at a time, with the shadow prices read off the final tableau and checked against the dual. Gradient descent, momentum, Nesterov, Adam and Newton on any surface you type, with the path drawn over the contours — the fastest way to understand why anyone bothered inventing momentum. And constrained optimisation, where the multiplier condition is drawn as two arrows lying on the same line rather than asserted, because the extremum is found by searching along the constraint curve and ∇f = λ∇g is then *checked*. |
+| **Chemical Reactions** | Type a reaction network and it becomes a system of ODEs by mass action, integrated with rate constants on sliders. Nothing in it knows what an equilibrium is: the flat line at the end is where the forward and reverse rates happened to balance, and K = kf/kr is measured off the result. Disturb a settled system and watch Le Chatelier's principle happen. Titration curves solved from the exact charge balance at every volume, so the buffer plateau and the jump at equivalence are consequences of Ka rather than a drawn shape — and equivalence lands at pH 8.7 for a weak acid, not at 7. Arrhenius temperature dependence, plotted as ln k against 1/T where the slope is −Ea/R. |
+| **Thermodynamics & Kinetic Theory** | A box of hard discs that collide elastically with each other and with the walls, and nothing else. Temperature is read from the speeds, pressure from the momentum the walls receive, and PA/NkT comes out at one because it has to. Start every particle at exactly the same speed and watch the histogram find Maxwell–Boltzmann on its own. Move the piston and the gas heats — a wall coming towards a disc sends it back faster — with no adiabatic formula anywhere in the calculation. PV cycles you define, accounted for leg by leg by the first law, so a Carnot loop's efficiency comes out at 1 − Tc/Th from work over heat. And the ideal gas law as a straight-line fit to pressures measured at six box sizes, with the small excess above NkT that real discs of finite size actually have. |
 
-**Help → Load an Example** opens forty-nine worked examples, grouped by mode
+**Help → Load an Example** opens fifty-nine worked examples, grouped by mode
 behind a dropdown each, with at least three for every mode — from Lissajous
 figures to the Heston model to the logistic map's route to chaos to a double
 pendulum that never repeats itself to a wavepacket tunnelling through a barrier
@@ -303,16 +306,19 @@ src/
       random.ts        seeded xoshiro128** and the variate generators
       fft.ts           radix-2 FFT and the window functions
       signal.ts        spectra, spectrograms, filter design, sampling
+      optimise.ts      two-phase simplex, descent methods, Lagrange multipliers
     physics/
       mechanics.ts     constrained rigid bodies by Lagrange multipliers
       circuit.ts       modified nodal analysis, companion models, Newton
       quantum.ts       tridiagonal eigenstates, Crank–Nicolson, transfer matrix
       waves.ts         leapfrog FDTD, Rayleigh–Sommerfeld, exact ray tracing
+      thermo.ts        hard-disc gas, measured pressure, PV cycles
       analytic.ts      recognises the textbook set-ups and names them
       linsolve.ts      dense LU, used by every solver above
     chemistry/
       table.ts         118 elements of measured data, generated once
       elements.ts      configurations, layout and hydrogen-like orbitals
+      reactions.ts     mass-action networks, equilibria, titration, Arrhenius
     store.ts         the whole document, in one zustand store
     serialize.ts     the .manifold format, with forgiving migration
   plot/scene.ts      declarative 2D scene description and its canvas renderer

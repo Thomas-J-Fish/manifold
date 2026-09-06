@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../core/store';
-import { uid } from '../core/defaults';
+import { playbackSpeed, uid } from '../core/defaults';
 import { SERIES_COLOURS, type TabState } from '../core/types';
 import {
   MEDIA,
@@ -11,6 +11,7 @@ import {
   createWaveField,
   criticalAngle,
   diffractionPattern,
+  dispersedIndex,
   fraunhoferPattern,
   groupVelocity,
   lensmaker,
@@ -18,7 +19,9 @@ import {
   reflectionCoefficient,
   thinLensImage,
   traceRays,
+  traceSpectrum,
   transmissionCoefficient,
+  type RaySegment,
   type Slit,
   type Surface,
   type WaveField,
@@ -109,6 +112,15 @@ function useField(world: WaveWorld, until: number): WaveField | null {
 }
 
 // ------------------------------------------------------------------ drawing
+
+/* The rays the optics view is showing: one wavelength, or a spectrum.
+ *
+ * Every consumer — the picture, the readout and the CSV — goes through here so
+ * none of them can disagree about how many rays there are or what colour each
+ * one is entitled to be drawn in. */
+function rayFan(world: WaveWorld): RaySegment[] {
+  return world.dispersion ? traceSpectrum(world, world.spectrumLines) : traceRays(world, world.wavelength);
+}
 
 function waveScene(tab: TabState, field: WaveField | null): PlotScene {
   const cfg = tab.waves;
@@ -229,7 +241,7 @@ function rayScene(tab: TabState): PlotScene {
   const cfg = tab.waves;
   const world = cfg.world;
   const layers: Layer[] = [];
-  const rays = traceRays(world);
+  const rays = rayFan(world);
 
   // The optical axis.
   layers.push({ type: 'hline', y: 0, colour: 'rgba(148,163,184,0.35)', style: 'dashed', width: 1 });
@@ -260,19 +272,63 @@ function rayScene(tab: TabState): PlotScene {
     });
   }
 
-  rays.forEach((ray, i) => {
+  /* Colour is wavelength, and nothing else.
+   *
+   * These used to be coloured by their index in the fan, which put eleven
+   * different hues on eleven rays of identical colour — in a mode where the
+   * diffraction view colours by wavelength for real. That reads as dispersion:
+   * it says the top of the lens is being shown a different colour from the
+   * bottom, and it is not even symmetric about the axis, so the ray at +14 mm
+   * and its mirror image at −14 mm came out different colours while landing in
+   * the same place. Keying the hue to the traced wavelength makes a
+   * monochromatic fan one colour, makes the picture symmetric by construction,
+   * and leaves a spectrum meaning a spectrum. */
+  const rayColour = (nm: number, alpha: number) => {
+    const [r, g, b] = wavelengthColour(nm);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+  // Faint per ray when many wavelengths overlap, so the envelope is readable.
+  const alpha = rays.length > 40 ? 0.55 : 0.9;
+  for (const ray of rays) {
+    const zs = ray.points.map((p) => p.z);
+    const ys = ray.points.map((p) => p.y);
     layers.push({
       type: 'polyline',
-      xs: Float64Array.from(ray.points.map((p) => p.z)),
-      ys: Float64Array.from(ray.points.map((p) => p.y)),
-      colour: ray.totalInternal ? '#f87171' : withAlpha(SERIES_COLOURS[i % SERIES_COLOURS.length], 0.9),
+      xs: Float64Array.from(zs),
+      ys: Float64Array.from(ys),
+      colour: rayColour(ray.wavelength, alpha),
+      // Dashed for total internal reflection: a separate channel from hue, so
+      // marking it costs nothing that colour is already saying.
+      style: ray.totalInternal ? 'dashed' : 'solid',
       width: 1.3,
     });
-  });
 
-  const crossings = axisCrossings(rays);
-  for (const z of crossings) {
-    layers.push({ type: 'points', xs: [z], ys: [0], colour: '#fbbf24', radius: 2.4 });
+    /* The approach, drawn white when a spectrum is being traced.
+     *
+     * Before the first surface every wavelength follows exactly the same path,
+     * so seven coloured lines are laid on top of one another and only the last
+     * one painted is visible — which makes the *incoming* beam look red, as
+     * though the light arrived already separated. It did not: white light in
+     * is the superposition, and separation is what the glass does. Drawn once,
+     * over the top, in white. */
+    if (world.dispersion && zs.length >= 2) {
+      layers.push({
+        type: 'polyline',
+        xs: Float64Array.from([zs[0], zs[1]]),
+        ys: Float64Array.from([ys[0], ys[1]]),
+        colour: 'rgba(241, 245, 249, 0.85)',
+        width: 1.3,
+      });
+    }
+  }
+
+  /* Focus markers coloured the same way. With a dispersive glass in the stack
+   * the crossings fan out along the axis, and that spread — blue focusing
+   * short of red — is chromatic aberration itself. */
+  for (const ray of rays) {
+    const z = axisCrossings([ray])[0];
+    if (z === undefined) continue;
+    layers.push({ type: 'points', xs: [z], ys: [0], colour: rayColour(ray.wavelength, 0.95), radius: 2.4 });
   }
 
   return {
@@ -306,7 +362,9 @@ export function WavesPanel({ tab }: { tab: TabState }) {
        * whole simulation happens in the first one per cent of the scrubber
        * and everything after it is the last frame held. */
       const duration = patch.duration ?? world.duration;
-      patchActive({ timeline: { ...tab.timeline, t: 0, playing: false, tMax: duration } });
+      patchActive({
+        timeline: { ...tab.timeline, t: 0, playing: false, tMax: duration, speed: playbackSpeed(duration) },
+      });
     },
     [commit, setWaves, world, patchActive, tab.timeline],
   );
@@ -617,6 +675,35 @@ export function WavesPanel({ tab }: { tab: TabState }) {
       {world.view === 'rays' && (
         <>
           <Panel title="Light in">
+            <Field
+              label="Wavelength (nm)"
+              hint="Every ray is drawn in the colour of the light it is. One wavelength in, one colour out."
+            >
+              <Slider
+                value={world.wavelength}
+                min={380}
+                max={720}
+                step={1}
+                onChange={(wavelength) => setWorld({ wavelength })}
+              />
+            </Field>
+            <Toggle
+              label="White light"
+              hint="Trace the same fan at several wavelengths at once. Nothing separates unless a glass has an Abbe number to separate it with."
+              checked={world.dispersion}
+              onChange={(dispersion) => setWorld({ dispersion })}
+            />
+            {world.dispersion && (
+              <Field label="Colours traced">
+                <Slider
+                  value={world.spectrumLines}
+                  min={3}
+                  max={15}
+                  step={1}
+                  onChange={(spectrumLines) => setWorld({ spectrumLines })}
+                />
+              </Field>
+            )}
             <Field label="Object distance (mm)" hint="Zero for parallel light from infinitely far away.">
               <NumberField
                 value={world.objectDistance}
@@ -660,7 +747,8 @@ export function WavesPanel({ tab }: { tab: TabState }) {
                     radius: 0,
                     tilt: 0,
                     aperture: 18,
-                    index: 1.5,
+                    index: 1.5168,
+                    abbe: 64.2,
                     mirror: false,
                     label: 'Flat',
                   };
@@ -676,8 +764,8 @@ export function WavesPanel({ tab }: { tab: TabState }) {
                 onClick={() => {
                   const z = (world.surfaces.at(-1)?.z ?? 0) + 40;
                   const lens: Surface[] = [
-                    { id: uid('surf'), z, radius: 60, tilt: 0, aperture: 18, index: 1.5, mirror: false, label: 'Lens front' },
-                    { id: uid('surf'), z: z + 8, radius: -60, tilt: 0, aperture: 18, index: 1, mirror: false, label: 'Lens back' },
+                    { id: uid('surf'), z, radius: 60, tilt: 0, aperture: 18, index: 1.5168, abbe: 64.2, mirror: false, label: 'Lens front' },
+                    { id: uid('surf'), z: z + 8, radius: -60, tilt: 0, aperture: 18, index: 1, abbe: 0, mirror: false, label: 'Lens back' },
                   ];
                   commit();
                   setWaves({ world: { ...world, surfaces: [...world.surfaces, ...lens] }, selectedId: lens[0].id });
@@ -691,8 +779,10 @@ export function WavesPanel({ tab }: { tab: TabState }) {
                 onClick={() => {
                   const z = (world.surfaces.at(-1)?.z ?? 0) + 40;
                   const prism: Surface[] = [
-                    { id: uid('surf'), z, radius: 0, tilt: 0, aperture: 30, index: 1.5, mirror: false, label: 'Prism in' },
-                    { id: uid('surf'), z: z + 30, radius: 0, tilt: 45, aperture: 30, index: 1, mirror: false, label: 'Prism face' },
+                    // SF11 dense flint: n_d = 1.7847, V_d = 25.7. A low Abbe
+                    // number is exactly what a dispersing prism is chosen for.
+                    { id: uid('surf'), z, radius: 0, tilt: 0, aperture: 30, index: 1.7847, abbe: 25.7, mirror: false, label: 'Prism in' },
+                    { id: uid('surf'), z: z + 30, radius: 0, tilt: 45, aperture: 30, index: 1, abbe: 0, mirror: false, label: 'Prism face' },
                   ];
                   commit();
                   setWaves({ world: { ...world, surfaces: [...world.surfaces, ...prism] }, selectedId: prism[1].id });
@@ -770,6 +860,24 @@ export function WavesPanel({ tab }: { tab: TabState }) {
                     }
                   />
                 </Field>
+                <Field
+                  label="Abbe number V"
+                  hint={
+                    surface.abbe > 0
+                      ? `n runs from ${fmt(dispersedIndex(surface.index, surface.abbe, 400), 4)} at 400 nm to ${fmt(dispersedIndex(surface.index, surface.abbe, 680), 4)} at 680 nm.`
+                      : 'Zero for one index at every colour. Crown glass is about 64, dense flint about 25 — and the smaller it is, the more the glass spreads a spectrum.'
+                  }
+                >
+                  <Slider
+                    value={surface.abbe}
+                    min={0}
+                    max={90}
+                    step={0.1}
+                    onChange={(abbe) =>
+                      setWorld({ surfaces: world.surfaces.map((x) => (x.id === surface.id ? { ...x, abbe } : x)) })
+                    }
+                  />
+                </Field>
                 <Field label="Half-height (mm)">
                   <Slider
                     value={surface.aperture}
@@ -830,14 +938,42 @@ export function WavesSurface({ tab }: { tab: TabState }) {
       const half = world.screenWidth * 1000;
       fitViewport({ xMin: -half, xMax: half, yMin: cfg.logIntensity ? -6.2 : -0.05, yMax: cfg.logIntensity ? 0.3 : 1.08 });
     } else {
+      /* Frame the rays that were actually traced, not the fan they started as.
+       * A lens sends them roughly where they came in and either would do; a
+       * prism deviates the beam by thirty-odd degrees, and a window sized from
+       * the entrance height alone leaves the spectrum off the top of the
+       * screen. Only the part inside the bench's own z window counts, or the
+       * long run-out to the right would zoom the optics into nothing. */
       const last = world.surfaces.length ? Math.max(...world.surfaces.map((s) => s.z)) : 100;
       const first = world.surfaces.length ? Math.min(...world.surfaces.map((s) => s.z)) : 0;
-      const height = Math.max(20, world.rayHeight * 1.6);
-      fitViewport({ xMin: first - 50, xMax: last + 130, yMin: -height, yMax: height });
+      const xMin = first - 50;
+      const xMax = last + 130;
+      let lo = -world.rayHeight;
+      let hi = world.rayHeight;
+      for (const ray of rayFan(world)) {
+        for (const p of ray.points) {
+          if (p.z < xMin || p.z > xMax || !Number.isFinite(p.y)) continue;
+          lo = Math.min(lo, p.y);
+          hi = Math.max(hi, p.y);
+        }
+      }
+      const pad = Math.max(4, (hi - lo) * 0.12);
+      fitViewport({ xMin, xMax, yMin: lo - pad, yMax: hi + pad });
     }
     // Only when the shape of the experiment changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [world.view, world.length, world.screenWidth, world.surfaces.length, cfg.logIntensity, fitViewport]);
+  }, [
+    world.view,
+    world.length,
+    world.screenWidth,
+    world.surfaces,
+    world.rayHeight,
+    world.rayAngle,
+    world.objectDistance,
+    world.dispersion,
+    cfg.logIntensity,
+    fitViewport,
+  ]);
 
   const analytic = useMemo(() => analyseWaves(tab), [tab]);
 
@@ -1039,7 +1175,7 @@ function DiffractReadout({ tab }: { tab: TabState }) {
 
 function RayReadout({ tab }: { tab: TabState }) {
   const world = tab.waves.world;
-  const rays = useMemo(() => traceRays(world), [world]);
+  const rays = useMemo(() => rayFan(world), [world]);
   const crossings = axisCrossings(rays);
   const sorted = [...world.surfaces].sort((a, b) => a.z - b.z);
   const curved = sorted.filter((s) => s.radius !== 0);
@@ -1053,6 +1189,22 @@ function RayReadout({ tab }: { tab: TabState }) {
   const focuses = curved.length > 0 || sorted.some((s) => s.mirror);
   const spread = focuses && crossings.length > 1 ? Math.max(...crossings) - Math.min(...crossings) : 0;
   const paraxial = focuses && crossings.length ? Math.max(...crossings) : null;
+
+  /* Chromatic aberration, measured rather than asserted: trace the same fan at
+   * the blue and red Fraunhofer lines and compare where each one focuses. The
+   * difference is what an achromat is designed to cancel, and it is zero for
+   * every glass whose Abbe number is left at zero. */
+  const chromatic = useMemo(() => {
+    if (!focuses) return null;
+    const at = (nm: number) => {
+      const c = axisCrossings(traceRays(world, nm));
+      return c.length ? Math.max(...c) : null;
+    };
+    const blue = at(486.13);
+    const red = at(656.27);
+    if (blue === null || red === null) return null;
+    return { blue, red, shift: red - blue };
+  }, [world, focuses]);
 
   // The steepest index step present, for the critical-angle readout.
   let n1 = 1;
@@ -1081,6 +1233,9 @@ function RayReadout({ tab }: { tab: TabState }) {
         )}
         {paraxial !== null && <Stat label="Rays cross the axis near" value={`${fmt(paraxial, 5)} mm`} />}
         {spread > 0.01 && <Stat label="Spread of the focus" value={`${fmt(spread, 4)} mm`} />}
+        {chromatic !== null && Math.abs(chromatic.shift) > 0.005 && (
+          <Stat label="Red focus minus blue" value={`${fmt(chromatic.shift, 4)} mm`} emphasis />
+        )}
         {critical !== null && <Stat label="Critical angle" value={`${fmt(critical, 4)}°`} />}
         {critical !== null && <Stat label="Brewster angle" value={`${fmt(brewsterAngle(n1, n2), 4)}°`} />}
       </StatList>
@@ -1153,7 +1308,10 @@ function analyseWaves(tab: TabState) {
     ],
     quantities: [
       { label: 'Surfaces', value: world.surfaces.length, unit: '' },
-      { label: 'Rays', value: world.rayCount, unit: '' },
+      // The traced count, not the fan setting: with white light on, one
+      // entry in the fan becomes one ray per wavelength.
+      { label: 'Rays', value: rayFan(world).length, unit: '' },
+      ...(world.dispersion ? [{ label: 'Colours', value: world.spectrumLines, unit: '' }] : []),
     ],
     overlay: null,
     caveat:
@@ -1173,7 +1331,7 @@ export function wavesCsv(tab: TabState): string | null {
     );
   }
   if (world.view === 'rays') {
-    const rays = traceRays(world);
+    const rays = rayFan(world);
     const rows: (number | string)[][] = [];
     rays.forEach((ray, i) => {
       for (const p of ray.points) rows.push([i + 1, p.z, p.y, ray.totalInternal ? 'yes' : 'no']);

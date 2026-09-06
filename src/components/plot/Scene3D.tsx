@@ -231,8 +231,17 @@ export const Scene3D = forwardRef<Scene3DHandle, Props>(function Scene3D(
   }));
 
   return (
-    <div ref={containerRef} className={`h-full w-full ${className ?? ''}`}>
+    <div ref={containerRef} className={`relative h-full w-full ${className ?? ''}`}>
       <div ref={mountRef} className="h-full w-full cursor-grab touch-none active:cursor-grabbing" />
+      {/* A scene you can orbit looks exactly like one you cannot. The grab
+          cursor only appears once the pointer is already over the canvas and
+          says nothing about scrolling or panning, so the three gestures are
+          written down where someone deciding whether to try will see them. */}
+      {onCameraChange && (
+        <div className="pointer-events-none absolute bottom-2.5 left-3 select-none font-mono text-2xs text-ink-faint/80">
+          drag to orbit · scroll to zoom · shift-drag to pan
+        </div>
+      )}
     </div>
   );
 });

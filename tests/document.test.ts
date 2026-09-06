@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatTick, formatPi, niceTicks, logTicks } from '../src/plot/scene';
 import { deserialiseProject, ProjectFormatError, serialiseProject, toCsv } from '../src/core/serialize';
-import { defaultViewport, makeExpression, makeProject, makeTab } from '../src/core/defaults';
+import { defaultViewport, makeExpression, makeProject, makeTab, playbackSpeed } from '../src/core/defaults';
 import { MODES } from '../src/core/types';
 import { parseDelimited } from '../src/core/math/fitting';
 
@@ -234,5 +234,45 @@ describe('CSV', () => {
     const parsed = parseDelimited('x\ty\n1\t2\n3\t4');
     expect(parsed.columns).toEqual(['x', 'y']);
     expect(parsed.rows[1]).toEqual([3, 4]);
+  });
+});
+
+describe('playback pacing', () => {
+  it('leaves a watchable run at real time and slows a millisecond one down', () => {
+    /* The clock advances simulated seconds per wall-clock second. That is the
+     * right thing for a pendulum and hopeless for a wave on a string: at 1× an
+     * eighty-millisecond run replays twelve times a second and a
+     * ten-millisecond one a hundred times, which reads as a broken animation
+     * rather than as physics. */
+    for (const tMax of [1, 1.5, 2, 3, 10, 30]) {
+      expect(`${tMax}: ${playbackSpeed(tMax)}`).toBe(`${tMax}: 1`);
+    }
+    // Anything shorter lands between three and eight seconds on screen.
+    for (const tMax of [0.5, 0.2, 0.08, 0.035, 0.01, 0.004, 0.001]) {
+      const seconds = tMax / playbackSpeed(tMax);
+      expect(`${tMax}: ${seconds > 3 && seconds < 8}`).toBe(`${tMax}: true`);
+    }
+    // Degenerate spans do not divide by zero or return something unusable.
+    expect(playbackSpeed(0)).toBe(1);
+    expect(playbackSpeed(-5)).toBe(1);
+  });
+
+  it('picks a speed a person would have picked', () => {
+    // 1, 2 or 5 times a power of ten, so the value shown in the control is not
+    // an eleven-digit consequence of a division.
+    for (const tMax of [0.08, 0.01, 0.3, 0.021, 0.0007]) {
+      const s = playbackSpeed(tMax);
+      const mantissa = s / 10 ** Math.floor(Math.log10(s));
+      expect(`${tMax}: ${Math.round(mantissa * 1000) / 1000}`).toMatch(/: (1|2|5)$/);
+    }
+  });
+
+  it('opens every mode with a clock you can actually watch', () => {
+    for (const mode of MODES) {
+      const tab = makeTab(mode.id);
+      const seconds = (tab.timeline.tMax - tab.timeline.tMin) / tab.timeline.speed;
+      expect(`${mode.id}: ${seconds >= 1}`).toBe(`${mode.id}: true`);
+      expect(tab.timeline.speed).toBeGreaterThan(0);
+    }
   });
 });

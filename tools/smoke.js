@@ -401,32 +401,37 @@ function step(label) {
     );
     check('the screen is drawn as well as the graph', (await page.locator('canvas').count()) >= 2);
 
-    // And the optics view refracts: a biconvex lens of f = 60 mm.
+    /* And the optics view refracts. The default lens is BK7 — n_d = 1.5168,
+     * R = ±60 mm, 10 mm thick — so every number below is worked out here from
+     * the glass rather than copied off the screen. */
     await page.click('[role="tab"]:has-text("Optics")');
     await page.waitForTimeout(900);
     const optics = await page.locator('body').innerText();
+    const nGlass = 1.5168;
+    const thin = 1 / ((nGlass - 1) * (1 / 60 + 1 / 60));
     const focal = /Focal length, thin-lens\s+([\d.]+) mm/.exec(optics);
     check(
-      'the lensmaker equation gives 60 mm',
-      focal && Math.abs(Number(focal[1]) - 60) < 0.5,
-      focal ? `${focal[1]} mm` : optics.slice(0, 300),
+      `the lensmaker equation gives ${thin.toFixed(2)} mm`,
+      focal && Math.abs(Number(focal[1]) - thin) < 0.5,
+      focal ? `${focal[1]} mm, expected ${thin.toFixed(2)}` : optics.slice(0, 300),
     );
     /* And the rays cross where a *thick* lens puts the focus, not where the
      * thin-lens number does — which is the whole reason for tracing them.
      *
-     *   1/f = (n−1)[1/R₁ − 1/R₂ + (n−1)d/(n R₁ R₂)]  →  f  = 61.714 mm
-     *   BFD = f[1 − (n−1)d/(n R₁)]                   →  BFD = 58.285 mm
+     *   1/f = (n−1)[1/R₁ − 1/R₂ + (n−1)d/(n R₁ R₂)]  →  f  = 59.748 mm
+     *   BFD = f[1 − (n−1)d/(n R₁)]                   →  BFD = 56.355 mm
      *
-     * measured from the back vertex at z = 10, so 68.285 mm from the front
+     * measured from the back vertex at z = 10, so 66.355 mm from the front
      * one. The innermost ray of the fan lands a couple of tenths short of that
      * because even it is not perfectly paraxial. Assert the thick-lens answer
      * and this check fails the moment the tracer starts approximating. */
-    const thick = 1 / (0.5 * (1 / 60 + 1 / 60 + (0.5 * 10) / (1.5 * 60 * -60)));
-    const bfd = 10 + thick * (1 - (0.5 * 10) / (1.5 * 60));
+    const thick =
+      1 / ((nGlass - 1) * (1 / 60 + 1 / 60 + ((nGlass - 1) * 10) / (nGlass * 60 * -60)));
+    const bfd = 10 + thick * (1 - ((nGlass - 1) * 10) / (nGlass * 60));
     const crossing = /Rays cross the axis near\s+([\d.]+) mm/.exec(optics);
     check(
       'and parallel rays cross at the thick-lens focus, not the thin-lens one',
-      crossing && Math.abs(Number(crossing[1]) - bfd) < 0.6 && Math.abs(bfd - 60) > 5,
+      crossing && Math.abs(Number(crossing[1]) - bfd) < 0.6 && Math.abs(bfd - thin) > 5,
       crossing ? `${crossing[1]} mm, expected ${bfd.toFixed(2)}` : 'not shown',
     );
     check('no error boundary', !/could not start/i.test(optics));
@@ -476,6 +481,143 @@ function step(label) {
     check('no error boundary', !/could not start/i.test(alias));
   }
   await page.screenshot({ path: path.join(SHOT_DIR, '20-signals.png') });
+
+  step('Optimisation');
+  await selectMode(page, 'optimisation');
+  await page.waitForTimeout(1200);
+
+  {
+    /* The carpenter's problem: maximise 5x + 4y subject to 6x + 4y ≤ 24 and
+     * x + 2y ≤ 6. The optimum is (3, 1.5) with value 21, which is worked out
+     * by hand and not by this program. */
+    const text = await page.locator('body').innerText();
+    check('the simplex reaches the optimum', /Status\s+optimal/.test(text), text.slice(0, 400));
+    const objective = /Objective\s+([\d.]+)/.exec(text);
+    check(
+      'with the objective at 21',
+      objective && Math.abs(Number(objective[1]) - 21) < 1e-3,
+      objective ? objective[1] : 'not shown',
+    );
+    const x1 = /x₁\s+([\d.]+)/.exec(text);
+    const x2 = /x₂\s+([\d.]+)/.exec(text);
+    check(
+      'at the corner (3, 1.5)',
+      x1 && x2 && Math.abs(Number(x1[1]) - 3) < 1e-3 && Math.abs(Number(x2[1]) - 1.5) < 1e-3,
+      x1 && x2 ? `(${x1[1]}, ${x2[1]})` : 'not shown',
+    );
+
+    // Rosenbrock from (−1.2, 1): the minimum is at (1, 1) with f = 0, and a
+    // descent that stalls in the valley is the failure worth catching.
+    await page.click('[role="tab"]:has-text("Descent")');
+    await page.waitForTimeout(1200);
+    const descent = await page.locator('body').innerText();
+    const value = /f at the end\s+([\d.eE+-]+)/.exec(descent) ?? /Final f\s+([\d.eE+-]+)/.exec(descent);
+    check(
+      'gradient descent gets down Rosenbrock',
+      value && Number(value[1]) < 0.05,
+      value ? value[1] : descent.slice(0, 400),
+    );
+
+    // max(x + y) on the unit circle is √2 at (1/√2, 1/√2), and the multiplier
+    // there is 1/√2 as well.
+    await page.click('[role="tab"]:has-text("Lagrange")');
+    await page.waitForTimeout(1200);
+    const lagrange = await page.locator('body').innerText();
+    const best = /Maximum\s+([\d.]+)/.exec(lagrange) ?? /f there\s+([\d.]+)/.exec(lagrange);
+    check(
+      'the constrained maximum of x + y on the unit circle is √2',
+      best && Math.abs(Number(best[1]) - Math.SQRT2) < 0.02,
+      best ? best[1] : lagrange.slice(0, 400),
+    );
+    check('no error boundary', !/could not start/i.test(lagrange));
+  }
+  await page.screenshot({ path: path.join(SHOT_DIR, '21-optimisation.png') });
+
+  step('Chemical reactions');
+  await selectMode(page, 'reactions');
+  await page.waitForTimeout(1600);
+
+  {
+    /* A → B → C with k₁ = 0.5 and k₂ = 0.2, run for 25 s. By then A is
+     * e^(−12.5) ≈ 4×10⁻⁶ and essentially everything has reached C, so the
+     * final concentrations are a closed-form check on the integrator. */
+    const text = await page.locator('body').innerText();
+    const finalC = /\[C\] final\s+([\d.]+)/.exec(text);
+    check(
+      'A → B → C runs to completion',
+      finalC && Number(finalC[1]) > 0.97 && Number(finalC[1]) < 1.0001,
+      finalC ? finalC[1] : text.slice(0, 400),
+    );
+    const finalA = /\[A\] final\s+([\d.eE+-]+)/.exec(text);
+    check('and A is used up', finalA && Number(finalA[1]) < 1e-4, finalA ? finalA[1] : 'not shown');
+
+    // 0.1 M acetic acid with 0.1 M NaOH: equivalence at 25 mL, and at pH 8.72
+    // rather than 7 — the fact this whole view exists to make undeniable.
+    await page.click('[role="tab"]:has-text("Titration")');
+    await page.waitForTimeout(1200);
+    const titration = await page.locator('body').innerText();
+    const equiv = /Equivalence\s+([\d.]+) mL/.exec(titration);
+    check(
+      'equivalence is at 25 mL',
+      equiv && Math.abs(Number(equiv[1]) - 25) < 0.2,
+      equiv ? equiv[1] : titration.slice(0, 400),
+    );
+    const ph = /pH there\s+([\d.]+)/.exec(titration);
+    check(
+      'and the pH there is 8.72, not 7',
+      ph && Math.abs(Number(ph[1]) - 8.72) < 0.1,
+      ph ? ph[1] : 'not shown',
+    );
+    check('no error boundary', !/could not start/i.test(titration));
+  }
+  await page.screenshot({ path: path.join(SHOT_DIR, '22-reactions.png') });
+
+  step('Thermodynamics');
+  await selectMode(page, 'thermodynamics');
+  await page.waitForTimeout(1800);
+
+  {
+    /* The box is seeded at T = 1, and in two dimensions T = ⟨mv²⟩/2k, so the
+     * measured temperature must come back at 1 whatever the particles do. */
+    const text = await page.locator('body').innerText();
+    const temperature = /Temperature\s+([\d.]+)/.exec(text);
+    check(
+      'the gas measures the temperature it was seeded at',
+      temperature && Math.abs(Number(temperature[1]) - 1) < 0.12,
+      temperature ? temperature[1] : text.slice(0, 400),
+    );
+    const mean = /Mean speed \(measured\)\s+([\d.]+)/.exec(text);
+    const maxwell = /Mean speed \(Maxwell\)\s+([\d.]+)/.exec(text);
+    check(
+      'and its mean speed matches the Maxwell value',
+      mean && maxwell && Math.abs(Number(mean[1]) / Number(maxwell[1]) - 1) < 0.08,
+      mean && maxwell ? `${mean[1]} vs ${maxwell[1]}` : 'not shown',
+    );
+
+    /* The default Carnot cycle between 500 K and 300 K, whose efficiency must
+     * be 1 − 300/500 = 40% — computed by the tracer from work over heat, with
+     * that formula appearing nowhere in the calculation. */
+    await page.click('[role="tab"]:has-text("PV cycle")');
+    await page.waitForTimeout(1200);
+    const cycle = await page.locator('body').innerText();
+    const efficiency = /Efficiency\s+([\d.]+) %/.exec(cycle);
+    check(
+      'the Carnot cycle comes out at 40%',
+      efficiency && Math.abs(Number(efficiency[1]) - 40) < 0.3,
+      efficiency ? efficiency[1] : cycle.slice(0, 400),
+    );
+    // The readout's own wording. "Closed cycle" also appears as the plot's
+    // caption, but that is painted on a canvas and innerText cannot see it.
+    check('and the loop closes', /The cycle closes/.test(cycle), cycle.slice(0, 300));
+    const limit = /Carnot limit\s+([\d.]+) %/.exec(cycle);
+    check(
+      'at exactly the Carnot limit',
+      efficiency && limit && Math.abs(Number(efficiency[1]) - Number(limit[1])) < 0.1,
+      efficiency && limit ? `${efficiency[1]} vs ${limit[1]}` : 'not shown',
+    );
+    check('no error boundary', !/could not start/i.test(cycle));
+  }
+  await page.screenshot({ path: path.join(SHOT_DIR, '23-thermodynamics.png') });
 
   /* ---- the interface chrome actually works.
    *

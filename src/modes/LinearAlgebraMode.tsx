@@ -84,7 +84,67 @@ export function LinearAlgebraPanel({ tab }: { tab: TabState }) {
       {cfg.view === 'calculator' && <CalculatorPanel cfg={cfg} />}
 
       {cfg.view === 'transform2d' && <ViewPanel tab={tab} />}
+      {(cfg.view === 'transform3d' || cfg.view === 'planes') && <CameraPanel tab={tab} />}
     </>
+  );
+}
+
+/**
+ * The camera, as numbers as well as as a drag.
+ *
+ * The scene has always been orbitable, and that was the whole problem: a
+ * picture that responds to being dragged looks identical to one that does not
+ * until you happen to try. Writing the angles down makes the gesture
+ * discoverable, and it makes the view *repeatable* — "looking down the x
+ * axis", "straight down from above" — which no amount of dragging does.
+ */
+function CameraPanel({ tab }: { tab: TabState }) {
+  const patchActive = useStore((s) => s.patchActive);
+  const c = tab.camera;
+  const set = (patch: Partial<TabState['camera']>) => patchActive({ camera: { ...c, ...patch } });
+  const degrees = (rad: number) => (rad * 180) / Math.PI;
+  const radians = (deg: number) => (deg * Math.PI) / 180;
+
+  return (
+    <Collapsible title="Camera">
+      <Field label="Turn (°)" hint="Or drag the scene itself.">
+        <Slider
+          value={Math.round(degrees(c.theta))}
+          min={-180}
+          max={180}
+          step={1}
+          onChange={(v) => set({ theta: radians(v) })}
+        />
+      </Field>
+      <Field label="Height (°)">
+        {/* Clamped short of the poles, where the up vector degenerates and the
+            view flips over — the same limit the drag handler enforces. */}
+        <Slider
+          value={Math.round(degrees(c.phi))}
+          min={3}
+          max={177}
+          step={1}
+          onChange={(v) => set({ phi: radians(v) })}
+        />
+      </Field>
+      <Field label="Distance">
+        <Slider value={c.distance} min={3} max={60} step={0.5} onChange={(distance) => set({ distance })} />
+      </Field>
+      <Row>
+        <Button
+          onClick={() => set({ theta: 0.9, phi: 1.05, distance: 15, target: [0, 0, 0] })}
+          title="Back to the angle the tab opened at"
+        >
+          Reset view
+        </Button>
+        <Button onClick={() => set({ theta: 0, phi: 0.05, target: [0, 0, 0] })} title="Straight down onto the xy plane">
+          Top down
+        </Button>
+        <Button onClick={() => set({ theta: 0, phi: Math.PI / 2, target: [0, 0, 0] })} title="Along the y axis">
+          Front on
+        </Button>
+      </Row>
+    </Collapsible>
   );
 }
 
