@@ -116,7 +116,7 @@ workspace saves to a single `.manifold` file.
 ### Starting a tab
 
 The **+** at the right-hand end of the tab strip — or **⌘T**, or **Tab → New
-Tab** — opens a picker listing all ten modes with a line of description each.
+Tab** — opens a picker listing all fourteen modes with a line of description each.
 Pick one and that tab opens configured for it: a Monte Carlo tab arrives with
 GBM already set up and a seed, a Statistics tab with a standard normal framed
 and its tail controls ready, a Linear Algebra tab with the identity matrix and
@@ -147,7 +147,7 @@ sweeps, the matrix interpolation, particle advection, PDE playback, the Riemann
 subdivision count and the Taylor order — everything animatable in the tab moves
 against the same timeline.
 
-### The twelve modes
+### The fourteen modes
 
 | | |
 |---|---|
@@ -163,11 +163,14 @@ against the same timeline.
 | **Electronics Sandbox** | Wire up cells, resistors, bulbs, switches, capacitors, inductors, diodes, LEDs, fuses, thermistors and meters on a grid. Solved by modified nodal analysis with companion models for the reactive parts and Newton–Raphson for the junctions — the same method SPICE uses. Watch the charge flow round the loop — wires included, in either the conventional or the electron direction — colour the wires by potential, and plot any voltage, current, power or charge against time. |
 | **Quantum Mechanics** | Build a potential from wells, barriers, steps, parabolas and fields, or type V(x) yourself, and then solve it four ways. The energy ladder and its wavefunctions, by exact diagonalisation of the tridiagonal Hamiltonian. A Gaussian wavepacket propagated by Crank–Nicolson, which is unitary, so probability is conserved to rounding rather than leaking. Transmission against energy by transfer matrix, drawn against the closed form where one exists. And the two-dimensional problem — a box, a circular well, a trap — where degeneracy comes from. |
 | **Periodic Table** | All 118 elements, shaded by any property: radius, electronegativity, ionisation energy, melting point, density, year of discovery. Click one to open it up — the nucleus and its shells, or the actual hydrogen-like orbital the outermost electrons are filling, with its nodes. Full electron configurations, generated from the Aufbau order and the twenty elements that break it. |
+| **Waves & Optics** | Waves on a string, a mass–spring chain, air, water or light, each with its own honest dispersion relation, run by leapfrog finite differences with fixed, free or absorbing ends and a change of medium anywhere along it — so the reflected and transmitted amplitudes come out of the integration rather than out of a formula. Diffraction from any arrangement of slits by summing the Rayleigh–Sommerfeld integral over the aperture, which gives the near field as well as the far one and a diffraction grating as readily as Young's two slits, with the pattern shown as a photograph of the screen. And ray tracing through lenses, prisms and mirrors by exact vector Snell refraction, with the lens equations printed beside it for comparison — where the rays disagree with them, the rays are right. |
+| **Signal Processing** | The spectrum of a signal you type or paste, with five window functions and the leakage each one trades for resolution. A spectrogram, where the window length is the uncertainty principle made adjustable. Butterworth and Chebyshev filters designed through the analogue prototype and the bilinear transform with tangent pre-warping, shown as poles and zeros on the z-plane beside their Bode response — build an RC low-pass in the electronics sandbox, put 1/2πRC in here, and it is the same curve. And aliasing, by undersampling a tone on purpose and reconstructing what the samples actually contain. |
 
-**Help → Load an Example** opens twenty-eight worked examples in a new tab, from
-Lissajous figures to the Heston model to the logistic map's route to chaos to a
-double pendulum that never repeats itself to a wavepacket tunnelling through a
-barrier it does not have the energy to cross.
+**Help → Load an Example** opens forty-nine worked examples, grouped by mode
+behind a dropdown each, with at least three for every mode — from Lissajous
+figures to the Heston model to the logistic map's route to chaos to a double
+pendulum that never repeats itself to a wavepacket tunnelling through a barrier
+it does not have the energy to cross to a prism that cannot let light out.
 
 #### The two sandboxes
 
@@ -298,10 +301,13 @@ src/
       fields.ts        vector fields, streamlines, heat and wave equations
       fractals.ts      escape-time sets, orbit diagrams, Lyapunov exponents
       random.ts        seeded xoshiro128** and the variate generators
+      fft.ts           radix-2 FFT and the window functions
+      signal.ts        spectra, spectrograms, filter design, sampling
     physics/
       mechanics.ts     constrained rigid bodies by Lagrange multipliers
       circuit.ts       modified nodal analysis, companion models, Newton
       quantum.ts       tridiagonal eigenstates, Crank–Nicolson, transfer matrix
+      waves.ts         leapfrog FDTD, Rayleigh–Sommerfeld, exact ray tracing
       analytic.ts      recognises the textbook set-ups and names them
       linsolve.ts      dense LU, used by every solver above
     chemistry/

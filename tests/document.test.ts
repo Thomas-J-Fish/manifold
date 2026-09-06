@@ -93,6 +93,44 @@ describe('project files', () => {
     expect(loaded.tabs[0].expressions.some((e) => e.source === 'cos(x)/x')).toBe(true);
   });
 
+  it('tells a null that means something from a null that means damage', () => {
+    /* The default decides. A field whose default is null is nullable and the
+     * null is data — "nothing is selected", "no comparison distribution", "no
+     * barrier" — and must come back as null rather than as whatever the
+     * default happened to be. A field whose default is text is not nullable
+     * and a null there is a broken file, so the default stands. */
+    const project = makeProject();
+    project.tabs = [makeTab('statistics'), makeTab('monte-carlo'), makeTab('waves')];
+    project.activeTabId = project.tabs[0].id;
+    project.tabs[0].statistics.compareId = 'lognormal';
+    project.tabs[1].monteCarlo.barrier = 62.5;
+    project.tabs[2].waves.selectedId = 'a';
+
+    const first = deserialiseProject(serialiseProject(project)).project;
+    expect(first.tabs[0].statistics.compareId).toBe('lognormal');
+    expect(first.tabs[1].monteCarlo.barrier).toBeCloseTo(62.5, 10);
+    expect(first.tabs[2].waves.selectedId).toBe('a');
+
+    // Now clear all three and save again: the cleared state has to survive.
+    first.tabs[0].statistics.compareId = null;
+    first.tabs[1].monteCarlo.barrier = null;
+    first.tabs[2].waves.selectedId = null;
+    const second = deserialiseProject(serialiseProject(first)).project;
+    expect(second.tabs[0].statistics.compareId).toBe(null);
+    expect(second.tabs[1].monteCarlo.barrier).toBe(null);
+    expect(second.tabs[2].waves.selectedId).toBe(null);
+
+    // And a null where the default is text keeps the text.
+    const damaged = JSON.parse(serialiseProject(second));
+    damaged.tabs[0].name = null;
+    damaged.tabs[0].statistics.distributionId = null;
+    damaged.tabs[1].monteCarlo.seed = null;
+    const third = deserialiseProject(JSON.stringify(damaged)).project;
+    expect(typeof third.tabs[0].name).toBe('string');
+    expect(third.tabs[0].statistics.distributionId).toBe('normal');
+    expect(third.tabs[1].monteCarlo.seed).toBe('manifold');
+  });
+
   it('fills in fields a older file never had', () => {
     // A project written before a feature existed must still open, with the
     // missing settings taking their defaults rather than becoming undefined.

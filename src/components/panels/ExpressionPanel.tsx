@@ -4,6 +4,7 @@ import { unboundSymbols } from '../../modes/graphing';
 import { BOUND_VARIABLES, type ExpressionItem, type ExpressionKind, type Parameter } from '../../core/types';
 import { SERIES_COLOURS } from '../../core/types';
 import { analyseExpression, MathField } from '../inputs/MathField';
+import { parsePoints } from '../../modes/graphing';
 import { Collapsible, IconButton, NumberField, Row, Select, Toggle } from '../ui/controls';
 import { IconChevronDown, IconEye, IconEyeOff, IconPlus, IconTrash } from '../ui/Icons';
 
@@ -143,6 +144,22 @@ function ExpressionRow({
         latex: null,
         error: definitionError,
         detail: null,
+        symbols: [],
+      };
+    }
+    /* A point list is not an expression and must not be compiled as one. Sent
+     * through the parser, "−1, 0; 1, 0" fails on the first comma and the row
+     * shows "could not parse" underneath a perfectly good pair of points that
+     * are, meanwhile, plotted. It gets its own reading: how many points came
+     * back, and an error only when none did. */
+    if (expression.kind === 'points') {
+      const points = parsePoints(expression.source);
+      const blank = expression.source.trim().length === 0;
+      return {
+        ok: points.length > 0 || blank,
+        latex: null,
+        error: points.length > 0 || blank ? null : 'No points could be read. Use "x, y" per line.',
+        detail: points.length > 0 ? `${points.length} point${points.length === 1 ? '' : 's'}` : null,
         symbols: [],
       };
     }

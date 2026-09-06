@@ -14,6 +14,8 @@ import {
   type CircuitConfig,
   type MechanicsConfig,
   type QuantumConfig,
+  type SignalsConfig,
+  type WavesConfig,
   type DynamicsConfig,
   type ExpressionItem,
   type ExpressionKind,
@@ -439,6 +441,81 @@ export function defaultChemistry(): ChemistryConfig {
   };
 }
 
+export function defaultWaves(): WavesConfig {
+  return {
+    world: {
+      view: 'propagate',
+      medium: 'string',
+      params: { tension: 40, density: 0.01 },
+      length: 1,
+      points: 700,
+      left: 'fixed',
+      right: 'fixed',
+      junction: 0,
+      speedRatio: 0.5,
+      source: { kind: 'pulse', centre: 0.3, width: 0.03, frequency: 200, amplitude: 1 },
+      duration: 0.08,
+      // Green light, a pair of slits a fifth of a millimetre apart, a screen
+      // two metres away: Young's experiment as it is actually done.
+      wavelength: 550,
+      slits: [
+        { id: 'a', centre: -0.1, width: 0.04, transmission: 1, phase: 0 },
+        { id: 'b', centre: 0.1, width: 0.04, transmission: 1, phase: 0 },
+      ],
+      screenDistance: 2,
+      screenWidth: 0.03,
+      sourceDistance: 0,
+      // A biconvex lens of focal length 60 mm, ten millimetres thick.
+      surfaces: [
+        { id: 'front', z: 0, radius: 60, tilt: 0, aperture: 18, index: 1.5, mirror: false, label: 'Front' },
+        { id: 'back', z: 10, radius: -60, tilt: 0, aperture: 18, index: 1, mirror: false, label: 'Back' },
+      ],
+      rayCount: 11,
+      rayHeight: 14,
+      objectDistance: 0,
+      rayAngle: 0,
+    },
+    // Nothing selected, as every other sandbox opens: the default view is the
+    // propagating one, which has no slit list on screen to select from.
+    selectedId: null,
+    showAnalytic: true,
+    showEquations: true,
+    logIntensity: false,
+  };
+}
+
+export function defaultSignals(): SignalsConfig {
+  return {
+    view: 'spectrum',
+    // Two tones an octave and a bit apart, so the spectrum has something to
+    // separate and the waveform is not simply a sine.
+    expression: 'sin(2*pi*50*t) + 0.5*sin(2*pi*120*t)',
+    sampleRate: 1000,
+    duration: 1,
+    window: 'hann',
+    noise: 0,
+    seed: 'manifold',
+    data: [],
+    useData: false,
+    filter: {
+      family: 'butterworth',
+      response: 'lowpass',
+      order: 4,
+      cutoff: 80,
+      cutoffHigh: 300,
+      sampleRate: 1000,
+      ripple: 1,
+      q: 8,
+    },
+    filtered: false,
+    logFrequency: false,
+    decibels: false,
+    windowSize: 256,
+    toneFrequency: 900,
+    sampleFrequency: 1000,
+  };
+}
+
 export function makeExpression(
   source = '',
   kind: ExpressionKind = 'function',
@@ -491,11 +568,28 @@ const VIEWPORT_BY_MODE: Record<TabMode, Viewport> = {
   quantum: { xMin: -3.2, xMax: 3.2, yMin: -6, yMax: 4 },
   // The periodic table draws itself; this is only a first frame.
   chemistry: { xMin: 0, xMax: 19, yMin: -11, yMax: 1 },
+  // The wave modes each reframe themselves when the view changes; these are
+  // the first frame only.
+  waves: { xMin: 0, xMax: 1, yMin: -1.6, yMax: 1.6 },
+  signals: { xMin: 0, xMax: 1, yMin: -1.6, yMax: 1.6 },
 };
 
 export function defaultViewport(mode: TabMode): Viewport {
   return { ...VIEWPORT_BY_MODE[mode] };
 }
+
+/* How long the clock runs, for the modes whose own simulation fixes it.
+ *
+ * A wave on a string has crossed and come back in eighty milliseconds, and a
+ * wavepacket is done in twenty femtoseconds. Left at the ten-second default,
+ * the whole run happens inside the first one per cent of the scrubber's travel
+ * and the remaining ninety-nine per cent holds the last frame — which looks
+ * exactly like an animation that has frozen. Modes with no natural end (a
+ * rotating vector field, a parameter sweep) keep the ten seconds. */
+const TIMELINE_MAX_BY_MODE: Partial<Record<TabMode, number>> = {
+  waves: defaultWaves().world.duration,
+  quantum: defaultQuantum().world.duration,
+};
 
 export function makeTab(mode: TabMode = 'graphing', name?: string): TabState {
   const seedExpressions: ExpressionItem[] =
@@ -518,7 +612,7 @@ export function makeTab(mode: TabMode = 'graphing', name?: string): TabState {
     camera: { theta: 0.9, phi: 1.05, distance: 15, target: [0, 0, 0] },
     parameters: seedParameters,
     expressions: seedExpressions,
-    timeline: { t: 0, tMin: 0, tMax: 10, playing: false, speed: 1, mode: 'loop' },
+    timeline: { t: 0, tMin: 0, tMax: TIMELINE_MAX_BY_MODE[mode] ?? 10, playing: false, speed: 1, mode: 'loop' },
     showGrid: true,
     showMinorGrid: true,
     showAxes: true,
@@ -535,6 +629,8 @@ export function makeTab(mode: TabMode = 'graphing', name?: string): TabState {
     circuits: defaultCircuits(),
     quantum: defaultQuantum(),
     chemistry: defaultChemistry(),
+    waves: defaultWaves(),
+    signals: defaultSignals(),
   };
 }
 
@@ -551,6 +647,8 @@ const NAME_BY_MODE: Record<TabMode, string> = {
   circuits: 'Circuit',
   quantum: 'Well',
   chemistry: 'Elements',
+  waves: 'Wave',
+  signals: 'Signal',
 };
 
 export function defaultTabName(mode: TabMode): string {

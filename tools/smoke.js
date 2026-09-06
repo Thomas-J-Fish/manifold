@@ -157,6 +157,10 @@ function step(label) {
     ['circuits', 'Circuits', '10-circuits'],
     ['quantum', 'Quantum', '11-quantum'],
     ['chemistry', 'Chemistry', '12-chemistry'],
+    // Numbered after the deep-dive shots below rather than continuing the walk,
+    // so the directory still reads in the order the run produced it.
+    ['waves', 'Waves and optics', '17-waves'],
+    ['signals', 'Signal processing', '18-signals'],
   ];
 
   for (const [id, label, shot] of modes) {
@@ -361,6 +365,117 @@ function step(label) {
     check('no error boundary', !/could not start/i.test(copper));
   }
   await page.screenshot({ path: path.join(SHOT_DIR, '16-chemistry.png') });
+
+  step('Waves and optics');
+  await selectMode(page, 'waves');
+  await page.waitForTimeout(1200);
+
+  {
+    /* √(40/0.01) = 63.246 m/s, and a 1 m string fixed at both ends has a
+     * fundamental of v/2L = 31.623 Hz. Both come from the medium's own
+     * formula and from nothing about the solver. */
+    const text = await page.locator('body').innerText();
+    const speed = /Wave speed\s+([\d.]+) m\/s/.exec(text);
+    check(
+      'the wave speed is √(T/µ)',
+      speed && Math.abs(Number(speed[1]) - Math.sqrt(40 / 0.01)) < 0.01,
+      speed ? `${speed[1]} m/s` : text.slice(0, 200),
+    );
+    const fundamental = /Fundamental\s+([\d.]+) Hz/.exec(text);
+    check(
+      'and the fundamental is v/2L',
+      fundamental && Math.abs(Number(fundamental[1]) - Math.sqrt(40 / 0.01) / 2) < 0.05,
+      fundamental ? `${fundamental[1]} Hz` : 'not shown',
+    );
+
+    // The diffraction view computes its pattern rather than recalling one:
+    // two 40 µm slits 0.2 mm apart give λD/d = 5.5 mm fringes at 2 m.
+    await page.click('[role="tab"]:has-text("Slits")');
+    await page.waitForTimeout(900);
+    const slits = await page.locator('body').innerText();
+    const spacing = /Fringe spacing\s+([\d.]+) mm/.exec(slits);
+    check(
+      'the fringe spacing is λD/d',
+      spacing && Math.abs(Number(spacing[1]) - 5.5) < 0.15,
+      spacing ? `${spacing[1]} mm` : slits.slice(0, 300),
+    );
+    check('the screen is drawn as well as the graph', (await page.locator('canvas').count()) >= 2);
+
+    // And the optics view refracts: a biconvex lens of f = 60 mm.
+    await page.click('[role="tab"]:has-text("Optics")');
+    await page.waitForTimeout(900);
+    const optics = await page.locator('body').innerText();
+    const focal = /Focal length, thin-lens\s+([\d.]+) mm/.exec(optics);
+    check(
+      'the lensmaker equation gives 60 mm',
+      focal && Math.abs(Number(focal[1]) - 60) < 0.5,
+      focal ? `${focal[1]} mm` : optics.slice(0, 300),
+    );
+    /* And the rays cross where a *thick* lens puts the focus, not where the
+     * thin-lens number does — which is the whole reason for tracing them.
+     *
+     *   1/f = (n−1)[1/R₁ − 1/R₂ + (n−1)d/(n R₁ R₂)]  →  f  = 61.714 mm
+     *   BFD = f[1 − (n−1)d/(n R₁)]                   →  BFD = 58.285 mm
+     *
+     * measured from the back vertex at z = 10, so 68.285 mm from the front
+     * one. The innermost ray of the fan lands a couple of tenths short of that
+     * because even it is not perfectly paraxial. Assert the thick-lens answer
+     * and this check fails the moment the tracer starts approximating. */
+    const thick = 1 / (0.5 * (1 / 60 + 1 / 60 + (0.5 * 10) / (1.5 * 60 * -60)));
+    const bfd = 10 + thick * (1 - (0.5 * 10) / (1.5 * 60));
+    const crossing = /Rays cross the axis near\s+([\d.]+) mm/.exec(optics);
+    check(
+      'and parallel rays cross at the thick-lens focus, not the thin-lens one',
+      crossing && Math.abs(Number(crossing[1]) - bfd) < 0.6 && Math.abs(bfd - 60) > 5,
+      crossing ? `${crossing[1]} mm, expected ${bfd.toFixed(2)}` : 'not shown',
+    );
+    check('no error boundary', !/could not start/i.test(optics));
+  }
+  await page.screenshot({ path: path.join(SHOT_DIR, '19-waves-optics.png') });
+
+  step('Signal processing');
+  await selectMode(page, 'signals');
+  await page.waitForTimeout(1400);
+
+  {
+    /* The default signal is sin(2π·50t) + ½sin(2π·120t) sampled at 1 kHz for
+     * one second, so the two peaks must come back at 50 and 120 Hz with the
+     * second half the height of the first. A window that is misapplied, an FFT
+     * with a sign error, or a bin index off by one all break this. */
+    const text = await page.locator('body').innerText();
+    const peaks = [...text.matchAll(/([\d.]+) Hz\s+([\d.]+)\s/g)].map((m) => [Number(m[1]), Number(m[2])]);
+    const fifty = peaks.find((p) => Math.abs(p[0] - 50) < 1.5);
+    const oneTwenty = peaks.find((p) => Math.abs(p[0] - 120) < 1.5);
+    check('the spectrum finds the 50 Hz tone', !!fifty, fifty ? String(fifty) : text.slice(0, 400));
+    check('and the 120 Hz one', !!oneTwenty, oneTwenty ? String(oneTwenty) : 'not found');
+    check(
+      'at half the amplitude, as it was written',
+      fifty && oneTwenty && Math.abs(oneTwenty[1] / fifty[1] - 0.5) < 0.08,
+      fifty && oneTwenty ? `${oneTwenty[1]} / ${fifty[1]}` : 'not comparable',
+    );
+    check('Nyquist is reported', /Nyquist\s+500 Hz/.test(text), text.slice(0, 300));
+
+    // A filter that designs unstable poles is the failure mode worth catching.
+    await page.click('[role="tab"]:has-text("Filter")');
+    await page.waitForTimeout(900);
+    const filter = await page.locator('body').innerText();
+    check('the filter is stable', /Stable\s+yes/.test(filter), filter.slice(0, 400));
+    const worst = /Largest pole\s+([\d.]+)/.exec(filter);
+    check(
+      'with every pole inside the unit circle',
+      worst && Number(worst[1]) < 1,
+      worst ? worst[1] : 'not shown',
+    );
+
+    // 900 Hz sampled at 1 kHz has to come back as 100, not as 900.
+    await page.click('[role="tab"]:has-text("Aliasing")');
+    await page.waitForTimeout(900);
+    const alias = await page.locator('body').innerText();
+    check('the alias is |f − fs|', /Appears at\s+100 Hz/.test(alias), alias.slice(0, 400));
+    check('and the mode says so plainly', /Recoverable\s+no/.test(alias), 'not shown');
+    check('no error boundary', !/could not start/i.test(alias));
+  }
+  await page.screenshot({ path: path.join(SHOT_DIR, '20-signals.png') });
 
   /* ---- the interface chrome actually works.
    *

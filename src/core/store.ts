@@ -40,10 +40,12 @@ import type {
   Parameter,
   ProjectFile,
   QuantumConfig,
+  SignalsConfig,
   StatisticsConfig,
   TabMode,
   TabState,
   Viewport,
+  WavesConfig,
 } from './types';
 
 const UNDO_LIMIT = 80;
@@ -155,6 +157,8 @@ interface AppState {
   setCircuits: (patch: Partial<CircuitConfig>) => void;
   setQuantum: (patch: Partial<QuantumConfig>) => void;
   setChemistry: (patch: Partial<ChemistryConfig>) => void;
+  setWaves: (patch: Partial<WavesConfig>) => void;
+  setSignals: (patch: Partial<SignalsConfig>) => void;
 
   // --- chrome
   setSidebar: (patch: { width?: number; collapsed?: boolean }) => void;
@@ -640,6 +644,24 @@ export const useStore = create<AppState>((set, get) => ({
       project: replaceTab(s.project, s.project.activeTabId, (t) => ({
         ...t,
         chemistry: { ...t.chemistry, ...patch },
+      })),
+      dirty: true,
+    })),
+
+  setWaves: (patch) =>
+    set((s) => ({
+      project: replaceTab(s.project, s.project.activeTabId, (t) => ({
+        ...t,
+        waves: { ...t.waves, ...patch },
+      })),
+      dirty: true,
+    })),
+
+  setSignals: (patch) =>
+    set((s) => ({
+      project: replaceTab(s.project, s.project.activeTabId, (t) => ({
+        ...t,
+        signals: { ...t.signals, ...patch },
       })),
       dirty: true,
     })),

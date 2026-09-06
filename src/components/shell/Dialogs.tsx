@@ -1,9 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { bridge } from '../../core/bridge';
 import { EXAMPLES } from '../../core/examples';
 import { useStore } from '../../core/store';
 import { FUNCTION_GROUPS } from '../../core/math/functions';
-import { IconClose, IconSearch } from '../ui/Icons';
+import { MODES, type TabMode } from '../../core/types';
+import { IconChevronDown, IconClose, IconSearch } from '../ui/Icons';
 
 function Modal({
   title,
@@ -176,37 +177,90 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
+/**
+ * The example browser, grouped by mode.
+ *
+ * A flat grid of forty-five buttons is a wall: everything is equally visible,
+ * which means nothing is. Collapsing by mode turns it into fourteen lines a
+ * student reads in a second, and the count beside each says what is in there
+ * before it is opened. Nothing is open to begin with, which is the point —
+ * the first decision is "what am I trying to do", not "which of these
+ * forty-five".
+ */
 export function ExamplesDialog({ onClose }: { onClose: () => void }) {
   const commit = useStore((s) => s.commit);
+  const [open, setOpen] = useState<TabMode | null>(null);
+
+  const byMode = useMemo(() => {
+    const groups = new Map<TabMode, typeof EXAMPLES>();
+    for (const ex of EXAMPLES) {
+      const list = groups.get(ex.mode);
+      if (list) list.push(ex);
+      else groups.set(ex.mode, [ex]);
+    }
+    return groups;
+  }, []);
+
+  const load = (ex: (typeof EXAMPLES)[number]) => {
+    commit();
+    const tab = ex.build();
+    useStore.setState((s) => ({
+      project: { ...s.project, tabs: [...s.project.tabs, tab], activeTabId: tab.id },
+      dirty: true,
+    }));
+    onClose();
+  };
 
   return (
     <Modal
       title="Examples"
-      subtitle="Each one opens in a new tab. Nothing already open is disturbed."
+      subtitle={`${EXAMPLES.length} worked examples. Each one opens in a new tab; nothing already open is disturbed.`}
       onClose={onClose}
       width="max-w-3xl"
     >
-      <div className="grid grid-cols-2 gap-2">
-        {EXAMPLES.map((ex) => (
-          <button
-            key={ex.id}
-            type="button"
-            data-example={ex.id}
-            onClick={() => {
-              commit();
-              const tab = ex.build();
-              useStore.setState((s) => ({
-                project: { ...s.project, tabs: [...s.project.tabs, tab], activeTabId: tab.id },
-                dirty: true,
-              }));
-              onClose();
-            }}
-            className="rounded-lg border border-edge bg-surface-1 p-3 text-left transition-colors hover:border-accent-deep hover:bg-surface-3"
-          >
-            <span className="block text-xs font-medium text-ink">{ex.title}</span>
-            <span className="mt-1 block text-2xs leading-relaxed text-ink-faint">{ex.blurb}</span>
-          </button>
-        ))}
+      <div className="space-y-1.5">
+        {MODES.map((mode) => {
+          const list = byMode.get(mode.id) ?? [];
+          if (!list.length) return null;
+          const expanded = open === mode.id;
+          return (
+            <div key={mode.id} className="overflow-hidden rounded-lg border border-edge bg-surface-1">
+              <button
+                type="button"
+                data-example-group={mode.id}
+                aria-expanded={expanded}
+                onClick={() => setOpen(expanded ? null : mode.id)}
+                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-surface-3"
+              >
+                <IconChevronDown
+                  size={13}
+                  className={`shrink-0 text-ink-faint transition-transform ${expanded ? '' : '-rotate-90'}`}
+                />
+                <span className="text-xs font-medium text-ink">{mode.name}</span>
+                <span className="ml-auto shrink-0 rounded-full border border-edge px-1.5 py-0.5 text-2xs text-ink-faint">
+                  {list.length}
+                </span>
+              </button>
+
+              {expanded && (
+                <div className="grid gap-2 border-t border-edge p-2 sm:grid-cols-2">
+                  {list.map((ex) => (
+                    <button
+                      key={ex.id}
+                      type="button"
+                      data-example={ex.id}
+                      onClick={() => load(ex)}
+                      className="rounded-lg border border-edge bg-surface-2 p-3 text-left transition-colors hover:border-accent-deep hover:bg-surface-3"
+                    >
+                      <span className="block text-xs font-medium text-ink">{ex.title}</span>
+                      <span className="mt-1 block text-2xs leading-relaxed text-ink-faint">{ex.blurb}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </Modal>
   );

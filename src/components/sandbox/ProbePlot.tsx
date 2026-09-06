@@ -56,12 +56,17 @@ export function ProbePlot({
   xLabel,
   cursorTime,
   height,
+  fill = false,
 }: {
   traces: Trace[];
   xLabel: string;
   /** Drawn as a vertical line: where the shared clock currently is. */
   cursorTime: number | null;
   height: number;
+  /** Take the whole of a flex parent instead of the fixed height. Used where
+   * the plot is one of two filling a pane rather than one of several stacked
+   * in a scrolling column; `height` is then only the minimum. */
+  fill?: boolean;
 }) {
   const scene = useMemo((): PlotScene => {
     const layers: Layer[] = [];
@@ -132,7 +137,7 @@ export function ProbePlot({
   }, [traces, xLabel, cursorTime]);
 
   return (
-    <div style={{ height }} className="w-full">
+    <div style={fill ? { minHeight: height } : { height }} className={fill ? 'h-full w-full' : 'w-full'}>
       <Plot2D
         scene={scene}
         staticView

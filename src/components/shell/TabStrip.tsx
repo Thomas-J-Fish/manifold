@@ -16,6 +16,8 @@ const MODE_GLYPH: Record<TabMode, string> = {
   circuits: '⏚',
   quantum: 'ψ',
   chemistry: '⚛',
+  waves: '≈',
+  signals: '⋀',
 };
 
 /**

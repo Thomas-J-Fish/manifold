@@ -453,10 +453,14 @@ export function QuantumPanel({ tab }: { tab: TabState }) {
     (patch: Partial<QuantumWorld>) => {
       commit();
       setQuantum({ world: { ...world, ...patch } });
-      // Any change to the problem invalidates the clock, exactly as in the
-      // other sandboxes: a packet halfway through an evolution of a potential
-      // that no longer exists is not a thing anyone wants to look at.
-      patchActive({ timeline: { ...tab.timeline, t: 0, playing: false } });
+      /* Any change to the problem invalidates the clock, exactly as in the
+       * other sandboxes: a packet halfway through an evolution of a potential
+       * that no longer exists is not a thing anyone wants to look at. The
+       * clock's *span* follows the run length too — a scrubber that ends long
+       * after the simulation does spends most of its travel on the last
+       * frame, which reads as the animation having frozen. */
+      const duration = patch.duration ?? world.duration;
+      patchActive({ timeline: { ...tab.timeline, t: 0, playing: false, tMax: duration } });
     },
     [commit, setQuantum, world, patchActive, tab.timeline],
   );

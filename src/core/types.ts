@@ -24,7 +24,9 @@ export type TabMode =
   | 'mechanics'
   | 'circuits'
   | 'quantum'
-  | 'chemistry';
+  | 'chemistry'
+  | 'waves'
+  | 'signals';
 
 export interface ModeInfo {
   id: TabMode;
@@ -136,6 +138,22 @@ export const MODES: ModeInfo[] = [
     name: 'Periodic Table',
     short: 'Elements',
     blurb: 'The table by any property, with each element opened up into its shells and orbitals.',
+    surface: 'custom',
+    supportsTimeline: false,
+  },
+  {
+    id: 'waves',
+    name: 'Waves & Optics',
+    short: 'Waves',
+    blurb: 'Waves on five media, diffraction through any aperture you draw, and rays through real lenses.',
+    surface: 'custom',
+    supportsTimeline: true,
+  },
+  {
+    id: 'signals',
+    name: 'Signal Processing',
+    short: 'Signals',
+    blurb: 'Spectra, spectrograms, filters with their poles and Bode plots, and aliasing you can hear coming.',
     surface: 'custom',
     supportsTimeline: false,
   },
@@ -492,6 +510,41 @@ export interface QuantumConfig {
   scale: number;
 }
 
+export interface WavesConfig {
+  world: import('./physics/waves').WaveWorld;
+  /** Selected slit or optical surface. */
+  selectedId: string | null;
+  /** Draw the Fraunhofer formula over the computed pattern, where one applies. */
+  showAnalytic: boolean;
+  showEquations: boolean;
+  /** Intensity on a log scale, so the faint outer fringes are visible. */
+  logIntensity: boolean;
+}
+
+export interface SignalsConfig {
+  view: 'spectrum' | 'spectrogram' | 'filter' | 'sampling';
+  /** The signal, as an expression in t (seconds). */
+  expression: string;
+  sampleRate: number;
+  duration: number;
+  window: import('./math/fft').WindowName;
+  /** Standard deviation of added noise, in the signal's own units. */
+  noise: number;
+  seed: string;
+  /** Samples pasted in as numbers, used instead of the expression. */
+  data: number[];
+  useData: boolean;
+  filter: import('./math/signal').FilterSpec;
+  /** Run the signal through the filter before looking at it. */
+  filtered: boolean;
+  logFrequency: boolean;
+  decibels: boolean;
+  windowSize: number;
+  /** The deliberate-undersampling demonstration. */
+  toneFrequency: number;
+  sampleFrequency: number;
+}
+
 export type ElementProperty =
   | 'category'
   | 'mass'
@@ -547,6 +600,8 @@ export interface TabState {
   circuits: CircuitConfig;
   quantum: QuantumConfig;
   chemistry: ChemistryConfig;
+  waves: WavesConfig;
+  signals: SignalsConfig;
 }
 
 export interface ProjectMeta {

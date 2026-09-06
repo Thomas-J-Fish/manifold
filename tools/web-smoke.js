@@ -191,12 +191,97 @@ async function main() {
   await page.keyboard.press('Escape');
 
   step('Every mode opens');
-  for (const id of ['statistics', 'linear-algebra', 'monte-carlo', 'calculus', 'dynamics', 'fields', 'fitting', 'circuits', 'quantum', 'chemistry']) {
+  for (const id of ['statistics', 'linear-algebra', 'monte-carlo', 'calculus', 'dynamics', 'fields', 'fitting', 'circuits', 'quantum', 'chemistry', 'waves', 'signals']) {
     await selectMode(page, id);
     const result = await canvasHasContent(page);
     check(`${id} renders`, result.ok, result.reason);
   }
   await page.screenshot({ path: path.join(SHOT_DIR, '02-modes.png') });
+
+  /* The two newest modes do the most arithmetic per frame, and the web build
+   * is the one where a missing polyfill or a stripped worker would show. Check
+   * a number from each rather than only that a canvas has pixels on it. */
+  step('The new modes compute, not merely render');
+  await selectMode(page, 'waves');
+  await page.waitForTimeout(900);
+  const wavesText = await page.locator('body').innerText();
+  check(
+    'waves: the speed is √(T/µ) = 63.246 m/s',
+    /Wave speed\s+63\.24/.test(wavesText),
+    wavesText.slice(0, 200),
+  );
+  await selectMode(page, 'signals');
+  await page.waitForTimeout(1100);
+  const signalsText = await page.locator('body').innerText();
+  check('signals: Nyquist is half the sample rate', /Nyquist\s+500 Hz/.test(signalsText), signalsText.slice(0, 200));
+  /* The peak list is what proves the FFT ran rather than that a panel drew:
+   * the default signal is sin(2π·50t) + ½sin(2π·120t), so both frequencies
+   * have to come back with the second half the height of the first. */
+  const webPeaks = [...signalsText.matchAll(/([\d.]+) Hz\s+([\d.]+)\s/g)].map((m) => [Number(m[1]), Number(m[2])]);
+  const fifty = webPeaks.find((p) => Math.abs(p[0] - 50) < 1.5);
+  const oneTwenty = webPeaks.find((p) => Math.abs(p[0] - 120) < 1.5);
+  check(
+    'signals: the FFT found both tones at the right relative amplitude',
+    fifty && oneTwenty && Math.abs(oneTwenty[1] / fifty[1] - 0.5) < 0.08,
+    fifty && oneTwenty
+      ? `${fifty.join(' Hz @ ')} · ${oneTwenty.join(' Hz @ ')}`
+      : signalsText.replace(/\s+/g, ' ').slice(0, 900),
+  );
+
+  step('The example catalogue');
+
+  {
+    /* Forty-nine examples behind fourteen dropdowns. The thing worth asserting
+     * is not that the dialog opens but that every mode has a group with a
+     * usable number in it — a mode whose heading is there and whose list is
+     * empty is exactly what an unnoticed regression looks like. */
+    await page.click('button[data-menu="Help"]');
+    await page.click('button[data-command="help.examples"]');
+    await page.waitForSelector('[data-example-group]', { timeout: 8000 });
+
+    const groups = await page.locator('[data-example-group]').count();
+    check('there is a group for every mode', groups === 14, `${groups} groups`);
+    check(
+      'and they start closed, so the list is not a wall of forty-nine cards',
+      (await page.locator('button[data-example]').count()) === 0,
+      `${await page.locator('button[data-example]').count()} shown`,
+    );
+
+    // Open each in turn and count what is inside it.
+    const thin = [];
+    for (let i = 0; i < groups; i++) {
+      const group = page.locator('[data-example-group]').nth(i);
+      const mode = await group.getAttribute('data-example-group');
+      await group.click();
+      await page.waitForTimeout(90);
+      const shown = await page.locator('button[data-example]').count();
+      if (shown < 3) thin.push(`${mode}:${shown}`);
+      await group.click();
+      await page.waitForTimeout(60);
+    }
+    check('every mode has at least three examples', thin.length === 0, thin.join(' '));
+
+    // And one of them actually loads into a working tab.
+    const before = await page.locator('[draggable="true"]').count();
+    await page.click('[data-example-group="waves"]');
+    await page.waitForTimeout(150);
+    await page.click('button[data-example="grating"]');
+    await page.waitForTimeout(1400);
+    const after = await page.locator('[draggable="true"]').count();
+    check('loading one opens a new tab', after === before + 1, `${before} → ${after}`);
+    const grating = await page.locator('body').innerText();
+    check('with the example built, not merely named', /Slits\s+6/.test(grating), grating.slice(0, 300));
+    // λD/d = 550 nm × 2 m / 80 µm = 13.75 mm, computed from the aperture.
+    check(
+      'and its physics run',
+      /Fringe spacing\s+13\.75 mm/.test(grating),
+      grating.slice(0, 400),
+    );
+    check('no error boundary', !/could not start/i.test(grating));
+  }
+  
+
+  await page.screenshot({ path: path.join(SHOT_DIR, '04-examples.png') });
 
   step('Autosave survives a reload');
   await page.click('button[data-menu="Tab"]');

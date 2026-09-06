@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGraphScene, unboundSymbols } from '../src/modes/graphing';
+import { buildGraphScene, parsePoints, unboundSymbols } from '../src/modes/graphing';
 import { makeExpression } from '../src/core/defaults';
 import { EvalScope } from '../src/core/math/scope';
 import type { Layer } from '../src/plot/scene';
@@ -172,5 +172,47 @@ describe('unbound symbols', () => {
     const expr = makeExpression('cos(t)', 'parametric');
     expr.source2 = 'b*sin(t)';
     expect(unboundSymbols([expr], defined)).toEqual(['b']);
+  });
+});
+
+describe('point lists', () => {
+  it('reads points separated by commas, semicolons, newlines or spaces', () => {
+    expect(parsePoints('-1, 0; 1, 0')).toEqual([
+      [-1, 0],
+      [1, 0],
+    ]);
+    expect(parsePoints('-1, 0\n1, 0')).toEqual([
+      [-1, 0],
+      [1, 0],
+    ]);
+    expect(parsePoints('0 1\n2 3')).toEqual([
+      [0, 1],
+      [2, 3],
+    ]);
+    // Extra columns are ignored rather than rejected: pasted data often has
+    // a label or an error bar after the coordinates.
+    expect(parsePoints('1, 2, ignored')).toEqual([[1, 2]]);
+    // And a line that is not a pair is skipped, not fatal.
+    expect(parsePoints('1, 2\nnonsense\n3, 4')).toEqual([
+      [1, 2],
+      [3, 4],
+    ]);
+  });
+
+  it('is not an expression, and must not be judged as one', () => {
+    /* The panel used to run every row through the expression parser to decide
+     * whether to show an error. A point list fails on its first comma, so a
+     * perfectly good pair of points came with "could not parse this
+     * expression" written under it — while the points themselves were on the
+     * screen. The two readings have to agree. */
+    const result = scene([makeExpression('-1, 0; 1, 0', 'points')]);
+    expect(result.errors).toEqual([]);
+    const drawn = result.layers.find((l): l is Extract<Layer, { type: 'points' }> => l.type === 'points');
+    expect(drawn?.xs).toEqual([-1, 1]);
+    expect(drawn?.ys).toEqual([0, 0]);
+  });
+
+  it('does report a list with nothing readable in it', () => {
+    expect(scene([makeExpression('nothing here', 'points')]).errors.length).toBe(1);
   });
 });

@@ -72,6 +72,10 @@ function frameDistribution(dist: Distribution, params: Record<string, number>, v
 }
 const COMPARE = '#38bdf8';
 const DATA = '#34d399';
+/* Sample B needs its own colour, not sample A's. A two-sample test whose plot
+ * shows one sample is worse than no plot: it invites the reader to judge a
+ * difference from a picture of half of it. */
+const DATA_B = '#fbbf24';
 
 /* ------------------------------------------------------------------ maths */
 
@@ -372,7 +376,10 @@ export function StatisticsPanel({ tab }: { tab: TabState }) {
         )}
       </Collapsible>
 
-      <Collapsible title="Compare" defaultOpen={false}>
+      {/* Open when there is already something in it: a project or an example
+          that arrives with a comparison, sample data or a test configured must
+          show it, not hide it behind a heading the user has to guess at. */}
+      <Collapsible title="Compare" defaultOpen={cfg.compareId !== null}>
         <Select
           value={cfg.compareId ?? ''}
           onChange={(id) =>
@@ -433,7 +440,7 @@ function DataPanel({ cfg }: { cfg: StatisticsConfig }) {
   };
 
   return (
-    <Collapsible title="Sample data" defaultOpen={false}>
+    <Collapsible title="Sample data" defaultOpen={cfg.dataA.length > 0 || cfg.dataB.length > 0}>
       <Field label="Sample A" hint="Numbers separated by spaces, commas or new lines.">
         <textarea
           className="input-base h-16 resize-y font-mono text-2xs"
@@ -527,7 +534,7 @@ function DataPanel({ cfg }: { cfg: StatisticsConfig }) {
 function TestPanel({ cfg, test }: { cfg: StatisticsConfig; test: TestResult | null }) {
   const setStatistics = useStore((s) => s.setStatistics);
   return (
-    <Collapsible title="Hypothesis test" defaultOpen={false}>
+    <Collapsible title="Hypothesis test" defaultOpen={cfg.testId !== 'none'}>
       <Select
         value={cfg.testId}
         onChange={(testId) => setStatistics({ testId })}
@@ -665,6 +672,21 @@ export function StatisticsSurface({ tab }: { tab: TabState }) {
     if (cfg.dataA.length > 4 && cfg.showKde && !isCdf) {
       const k = kde(cfg.dataA, tab.viewport.xMin, tab.viewport.xMax, 300);
       layers.push({ type: 'polyline', xs: k.xs, ys: k.ys, colour: DATA, width: 1.8, style: 'dashed' });
+    }
+    if (cfg.dataB.length > 1 && cfg.showHistogram && !isCdf) {
+      const h = histogram(cfg.dataB, cfg.binRule, cfg.binCount);
+      layers.push({
+        type: 'bars',
+        edges: h.edges,
+        heights: h.density,
+        colour: withAlpha(DATA_B, 0.24),
+        stroke: withAlpha(DATA_B, 0.65),
+      });
+      legend.push({ label: `${cfg.dataLabelB} (n=${cfg.dataB.length})`, colour: DATA_B });
+    }
+    if (cfg.dataB.length > 4 && cfg.showKde && !isCdf) {
+      const k = kde(cfg.dataB, tab.viewport.xMin, tab.viewport.xMax, 300);
+      layers.push({ type: 'polyline', xs: k.xs, ys: k.ys, colour: DATA_B, width: 1.8, style: 'dashed' });
     }
 
     // ---- shaded region

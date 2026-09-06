@@ -65,7 +65,35 @@ function serve() {
   await page.goto(`http://localhost:${port}/`);
   await page.waitForSelector('canvas');
 
-  if (mode !== 'graphing') {
+  /* --example loads one of the worked examples by id, which is the only way to
+   * see what a user actually sees when they pick one: the example's own
+   * viewport, its parameters and its clock, none of which a fresh tab has. */
+  const example = flag('example');
+  if (example) {
+    await page.click('button[data-menu="Help"]');
+    await page.click('button[data-command="help.examples"]');
+    await page.waitForSelector('[data-example-group]', { timeout: 8000 });
+    /* The groups are collapsed, and only one opens at a time, so try each in
+     * turn until the wanted example appears rather than working out which mode
+     * it belongs to. */
+    const target = page.locator(`button[data-example="${example}"]`);
+    const groups = await page.locator('[data-example-group]').all();
+    let found = false;
+    for (const group of groups) {
+      await group.click();
+      await page.waitForTimeout(120);
+      if ((await target.count()) > 0) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      process.stderr.write(`No example with id "${example}".\n`);
+      process.exit(1);
+    }
+    await target.click();
+    await page.waitForTimeout(1400);
+  } else if (mode !== 'graphing') {
     await page.click('[data-testid="new-tab"]');
     await page.waitForSelector(`button[data-mode="${mode}"]`, { timeout: 8000 });
     await page.click(`button[data-mode="${mode}"]`);

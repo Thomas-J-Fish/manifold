@@ -20,6 +20,8 @@ import { MechanicsPanel, MechanicsSurface, mechanicsCsv } from './MechanicsMode'
 import { CircuitPanel, CircuitSurface, circuitsCsv } from './CircuitMode';
 import { QuantumPanel, QuantumSurface, quantumCsv } from './QuantumMode';
 import { ChemistryPanel, ChemistrySurface, chemistryCsv } from './ChemistryMode';
+import { WavesPanel, WavesSurface, wavesCsv } from './WavesMode';
+import { SignalsPanel, SignalsSurface, signalsCsv } from './SignalsMode';
 
 export interface ModeModule {
   Panel: ComponentType<{ tab: TabState }>;
@@ -41,4 +43,6 @@ export const MODE_REGISTRY: Record<TabMode, ModeModule> = {
   circuits: { Panel: CircuitPanel, Surface: CircuitSurface, toCsv: circuitsCsv },
   quantum: { Panel: QuantumPanel, Surface: QuantumSurface, toCsv: quantumCsv },
   chemistry: { Panel: ChemistryPanel, Surface: ChemistrySurface, toCsv: () => chemistryCsv() },
+  waves: { Panel: WavesPanel, Surface: WavesSurface, toCsv: wavesCsv },
+  signals: { Panel: SignalsPanel, Surface: SignalsSurface, toCsv: signalsCsv },
 };

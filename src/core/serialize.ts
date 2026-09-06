@@ -11,7 +11,7 @@
  * told, while a user opening a slightly old project should just see it open.
  */
 
-import { makeProject, makeTab, uid } from './defaults';
+import { defaultSignals, defaultWaves, makeProject, makeTab, uid } from './defaults';
 import { defaultValues, SPEC_BY_KIND } from './physics/circuit';
 import {
   MODE_BY_ID,
@@ -59,7 +59,26 @@ const isVerbatim = (path: string) => VERBATIM_SUFFIXES.some((suffix) => path.end
  * nonsense for lists of expressions.
  */
 function overlay<T>(base: T, loaded: unknown, path: string, warnings: string[]): T {
-  if (loaded === undefined || loaded === null) return base;
+  if (loaded === undefined) return base;
+
+  /* Null needs its own rule, and the default is what supplies it.
+   *
+   * A field whose default is null is nullable — `selectedId`, `compareId`,
+   * `barrier` — and null is a value there, not an absence: "nothing is
+   * selected" has to survive a save. A field whose default is a string or a
+   * number is not nullable, and a null in the file is damage; those keep the
+   * default. Without the first half of that rule, saving a tab with nothing
+   * selected and opening it again silently selected something; without the
+   * second, one corrupted field could put a null where the UI expects text. */
+  if (base === null) {
+    const kind = typeof loaded;
+    if (loaded === null || kind === 'string' || kind === 'number' || kind === 'boolean') {
+      return (kind === 'number' && !Number.isFinite(loaded as number) ? null : loaded) as T;
+    }
+    warnings.push(`${path} should be a simple value or nothing; kept the default.`);
+    return base;
+  }
+  if (loaded === null) return base;
   if (isVerbatim(path)) {
     if (!isObject(loaded)) {
       warnings.push(`${path} should be an object; kept the default.`);
@@ -184,6 +203,8 @@ function loadTab(rawTab: unknown, index: number, warnings: string[]): TabState |
     circuits: sanitiseCircuits(merged.circuits),
     quantum: sanitiseQuantum(merged.quantum),
     chemistry: sanitiseChemistry(merged.chemistry),
+    waves: sanitiseWaves(merged.waves),
+    signals: sanitiseSignals(merged.signals),
   };
 }
 
@@ -425,6 +446,143 @@ function sanitiseChemistry(cfg: TabState['chemistry']): TabState['chemistry'] {
     // Out of range means no element panel at all, and an empty right-hand
     // column with no explanation of why.
     selected: Math.max(1, Math.min(118, Math.round(number(cfg.selected, 6)))),
+  };
+}
+
+const WAVE_VIEWS = new Set(['propagate', 'diffract', 'rays']);
+const MEDIA_IDS = new Set(['string', 'spring', 'sound', 'water', 'em']);
+const BOUNDARIES = new Set(['fixed', 'free', 'absorbing']);
+const SOURCE_KINDS = new Set(['pulse', 'driven', 'mode']);
+
+function sanitiseWaves(cfg: TabState['waves']): TabState['waves'] {
+  const fallback = defaultWaves().world;
+  const w = isObject(cfg.world) ? (cfg.world as unknown as Record<string, unknown>) : {};
+  const pick = <T extends string>(v: unknown, allowed: Set<string>, dflt: T): T =>
+    (allowed.has(text(v, '')) ? (v as T) : dflt);
+
+  // Medium parameters are read by name inside the speed formulas; a null or a
+  // string among them would turn the whole wave speed into NaN, and every
+  // sample with it.
+  const params: Record<string, number> = {};
+  if (isObject(w.params)) {
+    for (const [key, value] of Object.entries(w.params as Record<string, unknown>)) {
+      if (typeof value === 'number' && Number.isFinite(value)) params[key] = value;
+    }
+  }
+
+  const src = isObject(w.source) ? (w.source as Record<string, unknown>) : {};
+  const rawSlits = Array.isArray(w.slits) ? w.slits.filter(isObject) : [];
+  const slits = rawSlits.map((s, i) => ({
+    id: text(s.id, '') || uid(`slit${i}`),
+    centre: number(s.centre, 0),
+    // A slit of zero width transmits nothing and divides by zero when the
+    // aperture is sampled.
+    width: Math.max(1e-4, number(s.width, 0.04)),
+    transmission: Math.max(0, Math.min(1, number(s.transmission, 1))),
+    phase: number(s.phase, 0),
+  }));
+
+  const rawSurfaces = Array.isArray(w.surfaces) ? w.surfaces.filter(isObject) : [];
+  const surfaces = rawSurfaces.map((s, i) => ({
+    id: text(s.id, '') || uid(`surf${i}`),
+    z: number(s.z, 0),
+    // Zero is meaningful here: a flat surface. Anything non-finite is not.
+    radius: number(s.radius, 0),
+    tilt: number(s.tilt, 0),
+    aperture: Math.max(1e-3, number(s.aperture, 18)),
+    // An index below one is physically fine (X-rays, plasmas) but a zero or
+    // negative one inverts Snell's law into nonsense.
+    index: Math.max(1e-3, number(s.index, 1)),
+    mirror: flag(s.mirror, false),
+    label: text(s.label, `Surface ${i + 1}`),
+  }));
+
+  const ids = new Set<string>([...slits.map((s) => s.id), ...surfaces.map((s) => s.id)]);
+
+  return {
+    ...cfg,
+    world: {
+      view: pick(w.view, WAVE_VIEWS, fallback.view),
+      medium: pick(w.medium, MEDIA_IDS, fallback.medium),
+      params: Object.keys(params).length > 0 ? params : { ...fallback.params },
+      length: Math.max(1e-3, number(w.length, fallback.length)),
+      points: Math.max(32, Math.min(4000, Math.round(number(w.points, fallback.points)))),
+      left: pick(w.left, BOUNDARIES, fallback.left),
+      right: pick(w.right, BOUNDARIES, fallback.right),
+      junction: Math.max(0, Math.min(1, number(w.junction, fallback.junction))),
+      speedRatio: Math.max(1e-3, number(w.speedRatio, fallback.speedRatio)),
+      source: {
+        kind: pick(src.kind, SOURCE_KINDS, fallback.source.kind),
+        centre: Math.max(0, Math.min(1, number(src.centre, fallback.source.centre))),
+        width: Math.max(1e-4, number(src.width, fallback.source.width)),
+        frequency: Math.max(0, number(src.frequency, fallback.source.frequency)),
+        amplitude: number(src.amplitude, fallback.source.amplitude),
+      },
+      duration: Math.max(1e-4, number(w.duration, fallback.duration)),
+      wavelength: Math.max(1e-3, number(w.wavelength, fallback.wavelength)),
+      slits: slits.length > 0 ? slits : fallback.slits,
+      screenDistance: Math.max(1e-4, number(w.screenDistance, fallback.screenDistance)),
+      screenWidth: Math.max(1e-5, number(w.screenWidth, fallback.screenWidth)),
+      sourceDistance: Math.max(0, number(w.sourceDistance, fallback.sourceDistance)),
+      surfaces,
+      rayCount: Math.max(1, Math.min(201, Math.round(number(w.rayCount, fallback.rayCount)))),
+      rayHeight: Math.max(1e-3, number(w.rayHeight, fallback.rayHeight)),
+      objectDistance: number(w.objectDistance, fallback.objectDistance),
+      rayAngle: number(w.rayAngle, fallback.rayAngle),
+    },
+    selectedId: ids.has(cfg.selectedId ?? '') ? cfg.selectedId : null,
+    showAnalytic: flag(cfg.showAnalytic, true),
+    showEquations: flag(cfg.showEquations, true),
+    logIntensity: flag(cfg.logIntensity, false),
+  };
+}
+
+const SIGNAL_VIEWS = new Set(['spectrum', 'spectrogram', 'filter', 'sampling']);
+const WINDOW_NAMES = new Set(['rectangular', 'hann', 'hamming', 'blackman', 'flattop']);
+const FILTER_FAMILIES = new Set(['butterworth', 'chebyshev']);
+const FILTER_RESPONSES = new Set(['lowpass', 'highpass', 'bandpass', 'notch']);
+
+function sanitiseSignals(cfg: TabState['signals']): TabState['signals'] {
+  const fallback = defaultSignals();
+  const pick = <T extends string>(v: unknown, allowed: Set<string>, dflt: T): T =>
+    (allowed.has(text(v, '')) ? (v as T) : dflt);
+  const f = isObject(cfg.filter) ? (cfg.filter as unknown as Record<string, unknown>) : {};
+
+  const sampleRate = Math.max(1, number(cfg.sampleRate, fallback.sampleRate));
+  // A power-of-two window longer than the signal would read off the end of the
+  // sample buffer; the spectrogram would come back as a column of zeros.
+  const windowSize = Math.max(8, Math.min(8192, Math.round(number(cfg.windowSize, fallback.windowSize))));
+
+  return {
+    ...cfg,
+    view: pick(cfg.view, SIGNAL_VIEWS, fallback.view),
+    expression: text(cfg.expression, fallback.expression),
+    sampleRate,
+    duration: Math.max(1e-4, Math.min(600, number(cfg.duration, fallback.duration))),
+    window: pick(cfg.window, WINDOW_NAMES, fallback.window),
+    noise: Math.max(0, number(cfg.noise, 0)),
+    seed: text(cfg.seed, fallback.seed),
+    data: Array.isArray(cfg.data)
+      ? cfg.data.filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+      : [],
+    useData: flag(cfg.useData, false),
+    filter: {
+      family: pick(f.family, FILTER_FAMILIES, fallback.filter.family),
+      response: pick(f.response, FILTER_RESPONSES, fallback.filter.response),
+      // An odd order is legal; a zero or a fractional one is not a filter.
+      order: Math.max(1, Math.min(16, Math.round(number(f.order, fallback.filter.order)))),
+      cutoff: Math.max(1e-6, number(f.cutoff, fallback.filter.cutoff)),
+      cutoffHigh: Math.max(1e-6, number(f.cutoffHigh, fallback.filter.cutoffHigh)),
+      sampleRate: Math.max(1, number(f.sampleRate, sampleRate)),
+      ripple: Math.max(1e-3, Math.min(12, number(f.ripple, fallback.filter.ripple))),
+      q: Math.max(0.1, Math.min(200, number(f.q, fallback.filter.q))),
+    },
+    filtered: flag(cfg.filtered, false),
+    logFrequency: flag(cfg.logFrequency, false),
+    decibels: flag(cfg.decibels, false),
+    windowSize,
+    toneFrequency: Math.max(0, number(cfg.toneFrequency, fallback.toneFrequency)),
+    sampleFrequency: Math.max(1, number(cfg.sampleFrequency, fallback.sampleFrequency)),
   };
 }
 

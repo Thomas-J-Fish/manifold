@@ -12,34 +12,69 @@ import type { Viewport } from '../../core/types';
  * square. Every one of those quietly misinforms, and the first two make the
  * geometry on screen disagree with the geometry being simulated.
  *
- * The x range is authoritative and y is derived from it, so panning and
- * symmetric zooming leave the lock intact and only a deliberate one-axis zoom
- * (alt- or shift-scroll) can break it — at which point this pulls it back on
- * the next frame. The tolerance stops the correction from fighting sub-pixel
- * rounding and re-rendering forever.
+ * By default the x range is authoritative and y is derived from it, so panning
+ * and symmetric zooming leave the lock intact and only a deliberate one-axis
+ * zoom (alt- or shift-scroll) can break it — at which point this pulls it back
+ * on the next frame. The tolerance stops the correction from fighting
+ * sub-pixel rounding and re-rendering forever.
+ *
+ * `mode: 'contain'` instead treats the requested rectangle as a minimum and
+ * widens whichever axis needs it. That is what a diagram with a fixed shape in
+ * it wants — a pole–zero plot has to show the whole unit circle, and deriving
+ * y from x in a wide pane crops the top and bottom off it.
  */
 export function useSquareScales(
   plotRef: RefObject<PlotHandle | null>,
   viewport: Viewport,
   enabled = true,
+  mode: 'derive-y' | 'contain' = 'derive-y',
 ): void {
   // Deliberately the quiet setter: relocking the scales is the app tidying up
   // after itself, not an edit, and it must not leave an unsaved-changes mark
   // on a project the user has only looked at.
   const fitViewport = useStore((s) => s.fitViewport);
   useEffect(() => {
-    if (!enabled) return;
-    const aspect = plotRef.current?.plotAspect?.();
-    if (!aspect || !Number.isFinite(aspect) || aspect <= 0) return;
+    if (!enabled) return undefined;
 
-    const halfX = (viewport.xMax - viewport.xMin) / 2;
-    const halfY = (viewport.yMax - viewport.yMin) / 2;
-    if (halfX <= 0 || halfY <= 0) return;
+    const apply = (): boolean => {
+      const aspect = plotRef.current?.plotAspect?.();
+      /* The plot reports its aspect only once it has drawn, because the plot
+       * area's width depends on how wide the axis labels turned out. On a
+       * *moving* surface the next frame re-runs this effect and picks the
+       * number up; on a still one — a pole–zero diagram, a lens — there is no
+       * next frame, and without the retry below the scales stay unequal and
+       * the unit circle is an ellipse for as long as the view is open. */
+      if (!aspect || !Number.isFinite(aspect) || aspect <= 0) return false;
 
-    const wanted = halfX * aspect;
-    if (Math.abs(wanted - halfY) / halfY < 0.005) return;
+      const halfX = (viewport.xMax - viewport.xMin) / 2;
+      const halfY = (viewport.yMax - viewport.yMin) / 2;
+      if (halfX <= 0 || halfY <= 0) return true;
 
-    const cy = (viewport.yMin + viewport.yMax) / 2;
-    fitViewport({ ...viewport, yMin: cy - wanted, yMax: cy + wanted });
+      const wanted = halfX * aspect;
+      if (Math.abs(wanted - halfY) / halfY < 0.005) return true;
+
+      const cy = (viewport.yMin + viewport.yMax) / 2;
+      if (mode === 'contain' && wanted < halfY) {
+        // y is the binding constraint: keep it and widen x to match.
+        const cx = (viewport.xMin + viewport.xMax) / 2;
+        const half = halfY / aspect;
+        fitViewport({ ...viewport, xMin: cx - half, xMax: cx + half });
+        return true;
+      }
+      fitViewport({ ...viewport, yMin: cy - wanted, yMax: cy + wanted });
+      return true;
+    };
+
+    if (apply()) return undefined;
+    // Bounded: a handful of frames, then give up rather than spin for ever on
+    // a surface that never reports a box at all.
+    let tries = 0;
+    let frame = 0;
+    const retry = () => {
+      if (apply() || ++tries > 8) return;
+      frame = requestAnimationFrame(retry);
+    };
+    frame = requestAnimationFrame(retry);
+    return () => cancelAnimationFrame(frame);
   });
 }

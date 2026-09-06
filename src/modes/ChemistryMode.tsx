@@ -351,10 +351,30 @@ export function ChemistrySurface({ tab }: { tab: TabState }) {
     <SandboxLayout
       storageKey="chemistry"
       canvas={
+        /* The table and the trend belong together: the whole point of the
+         * trend plot is that its peaks line up with the columns above it, and
+         * a student cannot see that if the graph is in a different panel at a
+         * quarter of the width. The right-hand column is for the one element
+         * being looked at. */
         <div className="flex h-full w-full flex-col overflow-auto p-3">
           <Table selected={cfg.selected} colourBy={cfg.colourBy} range={range} onSelect={select} />
-          {cfg.colourBy !== 'category' && range && (
-            <Legend property={cfg.colourBy} range={range} />
+          {cfg.colourBy !== 'category' && range && <Legend property={cfg.colourBy} range={range} />}
+
+          {cfg.showTrend && trend.length > 0 && (
+            <div className="mt-4 border-t border-edge pt-3">
+              <div className="mb-1.5 flex items-baseline justify-between gap-3">
+                <h3 className="text-xs font-medium text-ink">
+                  {PROPERTY_BY_KEY.get(cfg.plotProperty)?.label} against atomic number
+                </h3>
+                <span className="text-2xs text-ink-faint">
+                  the vertical line is {ELEMENT_BY_Z.get(cfg.selected)?.name}
+                </span>
+              </div>
+              <ProbePlot traces={trend} xLabel="atomic number" cursorTime={element.z} height={260} />
+              <p className="pt-1.5 text-2xs text-ink-faint">
+                {PROPERTY_BY_KEY.get(cfg.plotProperty)?.hint}
+              </p>
+            </div>
           )}
         </div>
       }
@@ -426,14 +446,6 @@ export function ChemistrySurface({ tab }: { tab: TabState }) {
             </StatList>
           </div>
 
-          {cfg.showTrend && trend.length > 0 && (
-            <>
-              <ProbePlot traces={trend} xLabel="atomic number" cursorTime={element.z} height={200} />
-              <p className="px-3 pb-3 text-2xs text-ink-faint">
-                {PROPERTY_BY_KEY.get(cfg.plotProperty)?.hint}
-              </p>
-            </>
-          )}
         </>
       }
     />
