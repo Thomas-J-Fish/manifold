@@ -1,0 +1,23 @@
+{
+  /* The tests, typechecked.
+   *
+   * They were not, for a long time, because the main config includes only
+   * `src`. That is a worse gap than it sounds: a test is the one place where
+   * passing the wrong shape to a function does not announce itself, because
+   * the function quietly returns a default and the assertion fails with a
+   * baffling number instead of a compile error. One test here spent a while
+   * claiming a triangle had zero area, when in fact it had been handed the
+   * wrapper object rather than the list of vertices inside it.
+   */
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    /* No ambient type packages. The tests import what they use — vitest and
+     * the modules under test — and asking for @types/node here would lean on
+     * a package nothing declares as a dependency: it is present only because
+     * Electron happens to pull it in, so a change there would break the
+     * typecheck in CI for no reason anyone could see. */
+    "types": []
+  },
+  "include": ["tests"]
+}

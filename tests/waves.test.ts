@@ -62,6 +62,10 @@ function world(over: Partial<WaveWorld> = {}): WaveWorld {
     rayHeight: 8,
     objectDistance: 0,
     rayAngle: 0,
+    // A single wavelength unless a test asks otherwise: dispersion is a
+    // property of the glass, and most of these tests are not about it.
+    dispersion: false,
+    spectrumLines: 7,
     ...over,
   };
 }
@@ -415,6 +419,10 @@ describe('rays', () => {
     tilt: 0,
     aperture,
     index,
+    // No dispersion: these tests are about Snell and the lens equations, and a
+    // glass that splits colours would make every one of them wavelength-
+    // dependent for no gain.
+    abbe: 0,
     mirror: false,
     label: '',
   });
@@ -495,8 +503,8 @@ describe('rays', () => {
       const w = world({
         view: 'rays',
         surfaces: [
-          { id: 'in', z: 0, radius: 0, tilt: 0, aperture: 80, index: 1.5, mirror: false, label: '' },
-          { id: 'out', z: 40, radius: 0, tilt, aperture: 80, index: 1, mirror: false, label: '' },
+          { id: 'in', z: 0, radius: 0, tilt: 0, aperture: 80, index: 1.5, abbe: 0, mirror: false, label: '' },
+          { id: 'out', z: 40, radius: 0, tilt, aperture: 80, index: 1, abbe: 0, mirror: false, label: '' },
         ],
         rayCount: 1,
         rayHeight: 0,
@@ -528,7 +536,7 @@ describe('rays', () => {
   it('bends light towards the normal entering glass, by exactly Snell', () => {
     const w = world({
       view: 'rays',
-      surfaces: [{ id: 'flat', z: 0, radius: 0, tilt: 0, aperture: 100, index: 1.5, mirror: false, label: '' }],
+      surfaces: [{ id: 'flat', z: 0, radius: 0, tilt: 0, aperture: 100, index: 1.5, abbe: 0, mirror: false, label: '' }],
       rayCount: 1,
       rayHeight: 0,
       objectDistance: 0,

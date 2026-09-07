@@ -15,6 +15,7 @@ import {
   type MechanicsConfig,
   type QuantumConfig,
   type OptimisationConfig,
+  type GeometryConfig,
   type ReactionsConfig,
   type ThermoConfig,
   type SignalsConfig,
@@ -530,6 +531,79 @@ export function defaultOptimisation(): OptimisationConfig {
   };
 }
 
+export function defaultGeometry(): GeometryConfig {
+  /* Opens on Euclid's very first proposition: two circles of radius AB centred
+   * at A and B, and their crossing completes an equilateral triangle. It is
+   * the smallest construction that is worth dragging — move A or B and the
+   * triangle stays equilateral, which is the whole idea of the mode and takes
+   * about a second to discover by accident. */
+  const a = uid('g');
+  const b = uid('g');
+  const c1 = uid('g');
+  const c2 = uid('g');
+  const apex = uid('g');
+  const pt = (id: string, x: number, y: number, label: string, colour: number) => ({
+    id,
+    kind: 'point' as const,
+    parents: [],
+    x,
+    y,
+    label,
+    colour: SERIES_COLOURS[colour % SERIES_COLOURS.length],
+    visible: true,
+  });
+  return {
+    view: 'construct',
+    objects: [
+      pt(a, -1.5, -1, 'A', 0),
+      pt(b, 1.5, -1, 'B', 0),
+      {
+        id: c1,
+        kind: 'circle',
+        parents: [a, b],
+        label: '',
+        colour: SERIES_COLOURS[3],
+        visible: true,
+      },
+      {
+        id: c2,
+        kind: 'circle',
+        parents: [b, a],
+        label: '',
+        colour: SERIES_COLOURS[3],
+        visible: true,
+      },
+      {
+        id: apex,
+        kind: 'intersection',
+        parents: [c1, c2],
+        branch: 0,
+        label: 'C',
+        colour: SERIES_COLOURS[1],
+        visible: true,
+      },
+      {
+        id: uid('g'),
+        kind: 'polygon',
+        parents: [a, b, apex],
+        label: '',
+        colour: SERIES_COLOURS[1],
+        visible: true,
+      },
+    ],
+    tool: 'select',
+    selection: [],
+    showLabels: true,
+    showLocus: false,
+    locusDriver: null,
+    locusTracer: null,
+    rotateAngle: 90,
+    dilateFactor: 2,
+    eccentricity: 0.6,
+    showConicDetail: true,
+  };
+}
+
 export function defaultReactions(): ReactionsConfig {
   return {
     view: 'kinetics',
@@ -716,6 +790,9 @@ const VIEWPORT_BY_MODE: Record<TabMode, Viewport> = {
   signals: { xMin: 0, xMax: 1, yMin: -1.6, yMax: 1.6 },
   optimisation: { xMin: -1, xMax: 7, yMin: -1, yMax: 5 },
   reactions: { xMin: 0, xMax: 10, yMin: -0.05, yMax: 1.05 },
+  // Square-ish and centred: a construction is a picture of a space, so the
+  // scales are locked equal once the plot has measured itself.
+  geometry: { xMin: -5, xMax: 5, yMin: -3.5, yMax: 3.5 },
   thermodynamics: { xMin: 0, xMax: 1, yMin: 0, yMax: 1 },
 };
 
@@ -819,6 +896,7 @@ export function makeTab(mode: TabMode = 'graphing', name?: string): TabState {
     signals: defaultSignals(),
     optimisation: defaultOptimisation(),
     reactions: defaultReactions(),
+    geometry: defaultGeometry(),
     thermodynamics: defaultThermo(),
   };
 }
@@ -826,6 +904,7 @@ export function makeTab(mode: TabMode = 'graphing', name?: string): TabState {
 const NAME_BY_MODE: Record<TabMode, string> = {
   optimisation: 'Optimise',
   reactions: 'Reaction',
+  geometry: 'Figure',
   thermodynamics: 'Gas',
   graphing: 'Graph',
   statistics: 'Distribution',

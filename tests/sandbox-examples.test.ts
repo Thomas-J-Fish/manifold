@@ -301,12 +301,18 @@ describe('the example catalogue', () => {
       expect(`${ex.id}: ${warnings.join('; ')}`).toBe(`${ex.id}: `);
       const back = loaded.tabs[0];
       expect(`${ex.id}: ${back.mode}`).toBe(`${ex.id}: ${tab.mode}`);
-      // Compared as JSON because these configs are plain data by construction,
-      // and a deep equality that ignored an added field would defeat the point.
+      /* Compared structurally rather than as JSON text.
+       *
+       * `toEqual` still fails on an added, removed or altered field, which is
+       * the whole point of the check. What it does not fail on is the *order*
+       * of the keys — and a config with optional fields legitimately comes back
+       * with them in a different position, because the loader can only add one
+       * once it knows the value is there. Insisting on the text made the test
+       * an assertion about JSON serialisation order, which nothing depends on. */
       const key = tab.mode === 'linear-algebra' ? 'linalg' : tab.mode === 'monte-carlo' ? 'monteCarlo' : tab.mode;
       if (key in tab) {
-        expect(`${ex.id}: ${JSON.stringify(back[key as 'waves'])}`).toBe(
-          `${ex.id}: ${JSON.stringify(tab[key as 'waves'])}`,
+        expect(back[key as 'waves'], `${ex.id}: ${key} changed through a save and load`).toEqual(
+          tab[key as 'waves'],
         );
       }
     }

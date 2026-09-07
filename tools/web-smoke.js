@@ -98,10 +98,23 @@ async function canvasHasContent(page, index = 0) {
   }, index);
 }
 
+// Two-level picker: open subjects in turn until the mode's button appears.
+async function revealMode(page, id) {
+  const button = `button[data-mode="${id}"]`;
+  if (await page.locator(button).count()) return button;
+  for (const category of await page.locator('[data-category]').all()) {
+    await category.click();
+    await page.waitForTimeout(80);
+    if (await page.locator(button).count()) return button;
+  }
+  return button;
+}
+
 async function selectMode(page, id) {
   await page.click('[data-testid="new-tab"]');
-  await page.waitForSelector(`button[data-mode="${id}"]`, { timeout: 8000 });
-  await page.click(`button[data-mode="${id}"]`);
+  const button = await revealMode(page, id);
+  await page.waitForSelector(button, { timeout: 8000 });
+  await page.click(button);
   await page.waitForTimeout(900);
 }
 
@@ -173,8 +186,9 @@ async function main() {
   const tabsBefore = await page.locator('[draggable="true"]').count();
   await page.click('button[data-menu="Tab"]');
   await page.click('button[data-command="tab.new"]');
-  await page.waitForSelector('button[data-mode="mechanics"]', { timeout: 4000 });
-  await page.click('button[data-mode="mechanics"]');
+  const mechanicsButton = await revealMode(page, 'mechanics');
+  await page.waitForSelector(mechanicsButton, { timeout: 4000 });
+  await page.click(mechanicsButton);
   await page.waitForTimeout(1200);
   check(
     'Tab → New Tab opens the mode picker and adds a tab',
@@ -191,7 +205,7 @@ async function main() {
   await page.keyboard.press('Escape');
 
   step('Every mode opens');
-  for (const id of ['statistics', 'linear-algebra', 'monte-carlo', 'calculus', 'dynamics', 'fields', 'fitting', 'circuits', 'quantum', 'chemistry', 'waves', 'signals', 'optimisation', 'reactions', 'thermodynamics']) {
+  for (const id of ['statistics', 'linear-algebra', 'monte-carlo', 'calculus', 'dynamics', 'fields', 'fitting', 'circuits', 'quantum', 'chemistry', 'waves', 'signals', 'optimisation', 'reactions', 'thermodynamics', 'geometry']) {
     await selectMode(page, id);
     const result = await canvasHasContent(page);
     check(`${id} renders`, result.ok, result.reason);
@@ -272,30 +286,61 @@ async function main() {
     await page.click('button[data-command="help.examples"]');
     await page.waitForSelector('[data-example-group]', { timeout: 8000 });
 
-    const groups = await page.locator('[data-example-group]').count();
-    check('there is a group for every mode', groups === 17, `${groups} groups`);
+    /* Subjects first now, with the mode groups nested inside them — and only
+     * one subject open at a time, so the modes have to be counted subject by
+     * subject rather than all at once. */
+    const categoryIds = await page.locator('[data-example-category]').evaluateAll((els) =>
+      els.map((e) => e.getAttribute('data-example-category')),
+    );
+    check('there is a group for every subject', categoryIds.length === 4, `${categoryIds.length} subjects`);
     check(
-      'and they start closed, so the list is not a wall of fifty-nine cards',
+      'and no examples are on show before a subject is opened',
       (await page.locator('button[data-example]').count()) === 0,
       `${await page.locator('button[data-example]').count()} shown`,
     );
 
-    // Open each in turn and count what is inside it.
+    let groups = 0;
     const thin = [];
-    for (let i = 0; i < groups; i++) {
-      const group = page.locator('[data-example-group]').nth(i);
-      const mode = await group.getAttribute('data-example-group');
-      await group.click();
-      await page.waitForTimeout(90);
-      const shown = await page.locator('button[data-example]').count();
-      if (shown < 3) thin.push(`${mode}:${shown}`);
-      await group.click();
-      await page.waitForTimeout(60);
+    /* Toggles, not switches: Mathematics starts open, so clicking it blindly
+     * closes it and the modes inside vanish. Open only what is shut. */
+    const expand = async (selector) => {
+      if ((await page.locator(selector).getAttribute('aria-expanded')) !== 'true') {
+        await page.click(selector);
+        await page.waitForTimeout(110);
+      }
+    };
+    const collapse = async (selector) => {
+      if ((await page.locator(selector).getAttribute('aria-expanded')) === 'true') {
+        await page.click(selector);
+        await page.waitForTimeout(60);
+      }
+    };
+
+    for (const id of categoryIds) {
+      await expand(`[data-example-category="${id}"]`);
+      const modeIds = await page.locator('[data-example-group]').evaluateAll((els) =>
+        els.map((e) => e.getAttribute('data-example-group')),
+      );
+      groups += modeIds.length;
+      check(
+        `${id} has modes in it`,
+        modeIds.length > 0,
+        `${modeIds.length} modes`,
+      );
+      for (const mode of modeIds) {
+        await expand(`[data-example-group="${mode}"]`);
+        const shown = await page.locator('button[data-example]').count();
+        if (shown < 3) thin.push(`${mode}:${shown}`);
+        await collapse(`[data-example-group="${mode}"]`);
+      }
     }
+    check('there is a group for every mode', groups === 18, `${groups} groups`);
     check('every mode has at least three examples', thin.length === 0, thin.join(' '));
 
     // And one of them actually loads into a working tab.
     const before = await page.locator('[draggable="true"]').count();
+    await page.click('[data-example-category="physics"]');
+    await page.waitForTimeout(120);
     await page.click('[data-example-group="waves"]');
     await page.waitForTimeout(150);
     await page.click('button[data-example="grating"]');

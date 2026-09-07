@@ -11,6 +11,7 @@ import { makeExpression, makeParameter, makeTab, playbackSpeed, uid } from './de
 import { defaultValues as circuitDefaults } from './physics/circuit';
 import type { CircuitElement, ElementKind } from './physics/circuit';
 import type { Body, Link, Measurement, Surface } from './physics/mechanics';
+import type { GeoObject } from './math/geometry';
 import { SERIES_COLOURS, type TabMode, type TabState } from './types';
 
 export interface Example {
@@ -1437,6 +1438,136 @@ export const EXAMPLES: Example[] = [
     },
   },
 
+  // ----------------------------------------------------------------- geometry
+
+  {
+    id: 'circumcircle',
+    mode: 'geometry',
+    title: 'The circumcircle of a triangle',
+    blurb:
+      'Three perpendicular bisectors that always meet at one point, and the circle through all three vertices. Drag any vertex — it never stops being true.',
+    build: () => {
+      const tab = makeTab('geometry', 'Circumcircle');
+      const a = uid('g');
+      const b = uid('g');
+      const c = uid('g');
+      const ab = uid('g');
+      const bc = uid('g');
+      const o = uid('g');
+      tab.geometry = {
+        ...tab.geometry,
+        view: 'construct',
+        objects: [
+          geoPoint(a, -2.6, -1.5, 'A'),
+          geoPoint(b, 2.8, -1, 'B'),
+          geoPoint(c, 0.4, 2.3, 'C'),
+          geoDerived(uid('g'), 'polygon', [a, b, c], 1),
+          geoDerived(ab, 'bisector', [a, b], 4),
+          geoDerived(bc, 'bisector', [b, c], 4),
+          geoDerived(uid('g'), 'bisector', [c, a], 4),
+          { ...geoDerived(o, 'intersection', [ab, bc], 2), label: 'O' },
+          geoDerived(uid('g'), 'circle', [o, a], 2),
+        ],
+      };
+      tab.viewport = { xMin: -6, xMax: 6, yMin: -4.2, yMax: 4.2 };
+      return tab;
+    },
+  },
+  {
+    id: 'conic-family',
+    mode: 'geometry',
+    title: 'One definition, three curves',
+    blurb:
+      'A focus, a directrix and |PF| = e·d. Slide the eccentricity: below one it closes into an ellipse, at exactly one it opens into a parabola, above one it splits in two.',
+    build: () => {
+      const tab = makeTab('geometry', 'Conics');
+      const f = uid('g');
+      const d1 = uid('g');
+      const d2 = uid('g');
+      const dir = uid('g');
+      tab.geometry = {
+        ...tab.geometry,
+        view: 'conics',
+        eccentricity: 0.6,
+        showConicDetail: true,
+        objects: [
+          geoPoint(f, 1, 0, 'F'),
+          geoPoint(d1, -2.5, -2, ''),
+          geoPoint(d2, -2.5, 2, ''),
+          geoDerived(dir, 'line', [d1, d2], 5),
+          { ...geoDerived(uid('g'), 'conic', [f, dir], 2), value: 0.6 },
+        ],
+      };
+      tab.viewport = { xMin: -7, xMax: 7, yMin: -4.9, yMax: 4.9 };
+      return tab;
+    },
+  },
+  {
+    id: 'thales-semicircle',
+    mode: 'geometry',
+    title: 'Thales: the angle in a semicircle',
+    blurb:
+      'P slides round a circle whose diameter is AB. The angle at P reads 90° the whole way round — select the three points and watch the number refuse to move.',
+    build: () => {
+      const tab = makeTab('geometry', 'Thales');
+      const a = uid('g');
+      const b = uid('g');
+      const mid = uid('g');
+      const circ = uid('g');
+      const p = uid('g');
+      tab.geometry = {
+        ...tab.geometry,
+        view: 'construct',
+        objects: [
+          geoPoint(a, -2.5, 0, 'A'),
+          geoPoint(b, 2.5, 0, 'B'),
+          { ...geoDerived(mid, 'midpoint', [a, b], 5), label: 'O' },
+          geoDerived(circ, 'circle', [mid, b], 3),
+          { ...geoDerived(p, 'pointOn', [circ], 1), value: 0.17, label: 'P' },
+          geoDerived(uid('g'), 'segment', [a, p], 2),
+          geoDerived(uid('g'), 'segment', [p, b], 2),
+        ],
+        selection: [a, p, b],
+      };
+      tab.viewport = { xMin: -4.5, xMax: 4.5, yMin: -3.2, yMax: 3.2 };
+      return tab;
+    },
+  },
+  {
+    id: 'locus-midpoint',
+    mode: 'geometry',
+    title: 'A locus drawn by dragging',
+    blurb:
+      'The midpoint of a fixed point and one running round a circle. The traced path is another circle, half the size — found by moving the figure, not by algebra.',
+    build: () => {
+      const tab = makeTab('geometry', 'Locus');
+      const o = uid('g');
+      const rim = uid('g');
+      const circ = uid('g');
+      const driver = uid('g');
+      const fixed = uid('g');
+      const mid = uid('g');
+      tab.geometry = {
+        ...tab.geometry,
+        view: 'construct',
+        showLocus: true,
+        locusDriver: driver,
+        locusTracer: mid,
+        objects: [
+          geoPoint(o, -1.5, 0, 'O'),
+          geoPoint(rim, 0.5, 0, ''),
+          geoDerived(circ, 'circle', [o, rim], 3),
+          { ...geoDerived(driver, 'pointOn', [circ], 1), value: 0.1, label: 'P' },
+          geoPoint(fixed, 3, 1.5, 'Q'),
+          { ...geoDerived(mid, 'midpoint', [driver, fixed], 2), label: 'M' },
+          geoDerived(uid('g'), 'segment', [driver, fixed], 5),
+        ],
+      };
+      tab.viewport = { xMin: -5, xMax: 5, yMin: -3.5, yMax: 3.5 };
+      return tab;
+    },
+  },
+
   // ---------------------------------------------------------------- reactions
 
   {
@@ -1700,4 +1831,24 @@ function reading(
   colour: number,
 ) {
   return { id, kind, target, colour: SERIES_COLOURS[colour % SERIES_COLOURS.length], visible: true };
+}
+
+// ------------------------------------------------------------------ geometry
+
+/* A free point: the only kind that stores a position. Everything else in a
+ * construction is a rule, which is why the builders below take parents rather
+ * than coordinates. */
+function geoPoint(id: string, x: number, y: number, label: string): GeoObject {
+  return { id, kind: 'point', parents: [], x, y, label, colour: SERIES_COLOURS[0], visible: true };
+}
+
+function geoDerived(id: string, kind: GeoObject['kind'], parents: string[], colour: number): GeoObject {
+  return {
+    id,
+    kind,
+    parents,
+    label: '',
+    colour: SERIES_COLOURS[colour % SERIES_COLOURS.length],
+    visible: true,
+  };
 }

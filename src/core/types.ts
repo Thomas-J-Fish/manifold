@@ -29,10 +29,58 @@ export type TabMode =
   | 'signals'
   | 'optimisation'
   | 'reactions'
-  | 'thermodynamics';
+  | 'thermodynamics'
+  | 'geometry';
+
+/* Subject areas, for the two-level pickers.
+ *
+ * Seventeen modes in one flat list is a wall rather than a menu: nobody reads
+ * to the end of it, and the modes at the bottom may as well not exist. Two
+ * levels means the first choice is between four things a scientist already has
+ * a word for, and the second is a short list.
+ *
+ * The boundaries are conventions rather than facts — thermodynamics is taught
+ * in both physics and chemistry departments, and Monte Carlo is as much a
+ * computational method as a mathematical one. Where a mode could sit in two
+ * places it is filed under the subject a user would look in *first*, and
+ * moving one is a single edit to its entry below.
+ */
+export type ModeCategory = 'mathematics' | 'physics' | 'chemistry' | 'data';
+
+export interface CategoryInfo {
+  id: ModeCategory;
+  name: string;
+  blurb: string;
+}
+
+export const CATEGORIES: CategoryInfo[] = [
+  {
+    id: 'mathematics',
+    name: 'Mathematics',
+    blurb: 'Curves and constructions, algebra, calculus, probability and the behaviour of systems.',
+  },
+  {
+    id: 'physics',
+    name: 'Physics',
+    blurb: 'Benches you build and run: bodies, circuits, waves and quantum states.',
+  },
+  {
+    id: 'chemistry',
+    name: 'Chemistry',
+    blurb: 'The elements, reactions in time, and the gas laws from the particles up.',
+  },
+  {
+    id: 'data',
+    name: 'Data & Computation',
+    blurb: 'Getting an answer out of measurements: fitting, signals and optimisation.',
+  },
+];
+
+export const CATEGORY_BY_ID = new Map(CATEGORIES.map((c) => [c.id, c]));
 
 export interface ModeInfo {
   id: TabMode;
+  category: ModeCategory;
   name: string;
   short: string;
   blurb: string;
@@ -49,6 +97,7 @@ export interface ModeInfo {
 export const MODES: ModeInfo[] = [
   {
     id: 'graphing',
+    category: 'mathematics',
     name: 'Graphing',
     short: 'Graph',
     blurb: 'Functions, parametric and polar curves, implicit relations and inequalities.',
@@ -57,6 +106,7 @@ export const MODES: ModeInfo[] = [
   },
   {
     id: 'statistics',
+    category: 'mathematics',
     name: 'Statistics & Probability',
     short: 'Stats',
     blurb: 'Distributions with interactive tails, critical values and hypothesis tests.',
@@ -65,6 +115,7 @@ export const MODES: ModeInfo[] = [
   },
   {
     id: 'linear-algebra',
+    category: 'mathematics',
     name: 'Linear Algebra',
     short: 'Linear',
     blurb: 'Transformation sandbox, matrix calculator and 3D planes with exact intersections.',
@@ -73,6 +124,7 @@ export const MODES: ModeInfo[] = [
   },
   {
     id: 'monte-carlo',
+    category: 'mathematics',
     name: 'Monte Carlo & Simulation',
     short: 'Monte Carlo',
     blurb: 'Stochastic path simulation with fan charts, terminal distributions and risk measures.',
@@ -81,6 +133,7 @@ export const MODES: ModeInfo[] = [
   },
   {
     id: 'calculus',
+    category: 'mathematics',
     name: 'Calculus & ODEs',
     short: 'Calculus',
     blurb: 'Derivatives, integrals, Riemann sums, Taylor series, slope fields and phase portraits.',
@@ -89,6 +142,7 @@ export const MODES: ModeInfo[] = [
   },
   {
     id: 'dynamics',
+    category: 'mathematics',
     name: 'Dynamical Systems',
     short: 'Dynamics',
     blurb: 'Iterated maps, cobwebs, bifurcation diagrams and escape-time fractals.',
@@ -97,6 +151,7 @@ export const MODES: ModeInfo[] = [
   },
   {
     id: 'fields',
+    category: 'mathematics',
     name: 'Vector Fields & PDEs',
     short: 'Fields',
     blurb: 'Arrow grids, streamlines, particle advection and the heat and wave equations.',
@@ -105,6 +160,7 @@ export const MODES: ModeInfo[] = [
   },
   {
     id: 'fitting',
+    category: 'data',
     name: 'Data & Regression',
     short: 'Data',
     blurb: 'Import data, fit linear, polynomial and nonlinear models, and read the diagnostics.',
@@ -113,6 +169,7 @@ export const MODES: ModeInfo[] = [
   },
   {
     id: 'mechanics',
+    category: 'physics',
     name: 'Mechanics Sandbox',
     short: 'Mechanics',
     blurb: 'Build pendulums, springs, ramps and pulleys, then run them and measure what happens.',
@@ -121,6 +178,7 @@ export const MODES: ModeInfo[] = [
   },
   {
     id: 'circuits',
+    category: 'physics',
     name: 'Electronics Sandbox',
     short: 'Circuits',
     blurb: 'Wire up cells, resistors, capacitors and LEDs, then watch the currents and voltages.',
@@ -129,6 +187,7 @@ export const MODES: ModeInfo[] = [
   },
   {
     id: 'quantum',
+    category: 'physics',
     name: 'Quantum Mechanics',
     short: 'Quantum',
     blurb: 'Draw wells and barriers, find the bound states, launch a wavepacket and watch it tunnel.',
@@ -138,6 +197,7 @@ export const MODES: ModeInfo[] = [
   },
   {
     id: 'chemistry',
+    category: 'chemistry',
     name: 'Periodic Table',
     short: 'Elements',
     blurb: 'The table by any property, with each element opened up into its shells and orbitals.',
@@ -146,6 +206,7 @@ export const MODES: ModeInfo[] = [
   },
   {
     id: 'waves',
+    category: 'physics',
     name: 'Waves & Optics',
     short: 'Waves',
     blurb: 'Waves on five media, diffraction through any aperture you draw, and rays through real lenses.',
@@ -154,6 +215,7 @@ export const MODES: ModeInfo[] = [
   },
   {
     id: 'signals',
+    category: 'data',
     name: 'Signal Processing',
     short: 'Signals',
     blurb: 'Spectra, spectrograms, filters with their poles and Bode plots, and aliasing you can hear coming.',
@@ -162,6 +224,7 @@ export const MODES: ModeInfo[] = [
   },
   {
     id: 'optimisation',
+    category: 'data',
     name: 'Optimisation',
     short: 'Optimise',
     blurb: 'Linear programs with the simplex path across the feasible region, gradient descent, and Lagrange multipliers drawn.',
@@ -170,6 +233,7 @@ export const MODES: ModeInfo[] = [
   },
   {
     id: 'reactions',
+    category: 'chemistry',
     name: 'Chemical Reactions',
     short: 'Kinetics',
     blurb: 'Reaction networks integrated as ODEs, equilibria you can perturb, titration curves and Arrhenius.',
@@ -177,7 +241,17 @@ export const MODES: ModeInfo[] = [
     supportsTimeline: true,
   },
   {
+    id: 'geometry',
+    category: 'mathematics',
+    name: 'Geometry & Constructions',
+    short: 'Geometry',
+    blurb: 'Compass and straightedge, conics from focus and directrix, transformations, and figures that hold together when you drag them.',
+    surface: '2d',
+    supportsTimeline: false,
+  },
+  {
     id: 'thermodynamics',
+    category: 'chemistry',
     name: 'Thermodynamics',
     short: 'Thermo',
     blurb: 'A box of particles you compress and heat, Maxwell–Boltzmann emerging from it, and PV cycles.',
@@ -598,6 +672,50 @@ export interface OptimisationConfig {
   showEquations: boolean;
 }
 
+/** What clicking on the canvas currently does. */
+export type GeoTool =
+  | 'select'
+  | 'point'
+  | 'pointOn'
+  | 'intersection'
+  | 'segment'
+  | 'line'
+  | 'ray'
+  | 'circle'
+  | 'midpoint'
+  | 'bisector'
+  | 'perpendicular'
+  | 'parallel'
+  | 'angleBisector'
+  | 'polygon'
+  | 'conic'
+  | 'reflect'
+  | 'rotate'
+  | 'translate'
+  | 'dilate';
+
+export interface GeometryConfig {
+  /** Which group of tools the panel offers. All three share one figure. */
+  view: 'construct' | 'conics' | 'transform';
+  objects: import('./math/geometry').GeoObject[];
+  tool: GeoTool;
+  /** Ids picked so far towards the armed tool's parents. */
+  selection: string[];
+  showLabels: boolean;
+  /** Trace what one point sweeps out as another runs along its path. */
+  showLocus: boolean;
+  locusDriver: string | null;
+  locusTracer: string | null;
+  /** Degrees, for the rotation tool. */
+  rotateAngle: number;
+  /** Factor, for the dilation tool. */
+  dilateFactor: number;
+  /** Eccentricity given to the next conic. */
+  eccentricity: number;
+  /** Draw the axes, foci and asymptotes of any conic in the figure. */
+  showConicDetail: boolean;
+}
+
 export interface ReactionsConfig {
   view: 'kinetics' | 'equilibrium' | 'titration' | 'arrhenius';
   reactions: import('./chemistry/reactions').Reaction[];
@@ -715,6 +833,7 @@ export interface TabState {
   optimisation: OptimisationConfig;
   reactions: ReactionsConfig;
   thermodynamics: ThermoConfig;
+  geometry: GeometryConfig;
 }
 
 export interface ProjectMeta {

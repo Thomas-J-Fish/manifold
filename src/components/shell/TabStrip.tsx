@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from '../../core/store';
-import { MODES, type TabMode, type TabState } from '../../core/types';
-import { IconClose, IconPlus } from '../ui/Icons';
+import { CATEGORIES, MODES, type ModeCategory, type TabMode, type TabState } from '../../core/types';
+import { IconChevronDown, IconChevronRight, IconClose, IconPlus } from '../ui/Icons';
 
 const MODE_GLYPH: Record<TabMode, string> = {
   graphing: 'ƒ',
@@ -20,6 +20,7 @@ const MODE_GLYPH: Record<TabMode, string> = {
   signals: '⋀',
   optimisation: '◹',
   reactions: '⇌',
+  geometry: '△',
   thermodynamics: '♨',
 };
 
@@ -182,8 +183,45 @@ function TabButton({
   );
 }
 
+/**
+ * The new-tab picker, in two levels.
+ *
+ * A flat list of every mode is a wall: the ones near the bottom are never read,
+ * and the list only gets worse as modes are added. Choosing a subject first
+ * turns one long scan into two short ones, and the subject headings are words a
+ * scientist already has — so the first choice costs no thought at all.
+ *
+ * One subject is open at a time, and the one containing the mode most recently
+ * opened starts open, so the common case of "another one of those" is a single
+ * click away rather than two.
+ */
 function ModePicker({ onClose }: { onClose: () => void }) {
   const addTab = useStore((s) => s.addTab);
+  const activeMode = useStore((s) => s.project.tabs.find((t) => t.id === s.project.activeTabId)?.mode);
+  const [open, setOpen] = useState<ModeCategory>(
+    () => MODES.find((m) => m.id === activeMode)?.category ?? 'mathematics',
+  );
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const headerRefs = useRef(new Map<string, HTMLButtonElement>());
+
+  /* Bring the open heading to the top of the panel.
+   *
+   * Without this, opening a category lets the browser scroll it into view at
+   * the *bottom* edge, and the categories above scroll out of sight — opening
+   * Physics made Mathematics vanish and the picker looked like it had lost
+   * half its contents.
+   *
+   * It has to be an effect rather than a callback on the click: React has not
+   * yet re-rendered when the handler runs, so measuring there measures the old
+   * layout, and a requestAnimationFrame from inside the handler still lost the
+   * race against the browser's own scroll-into-view. */
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    const header = headerRefs.current.get(open);
+    if (!scroller || !header) return;
+    scroller.scrollTop += header.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+  }, [open]);
+
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
@@ -192,24 +230,58 @@ function ModePicker({ onClose }: { onClose: () => void }) {
           <span className="text-2xs font-semibold uppercase tracking-wider text-ink-faint">New tab</span>
           <span className="text-2xs text-ink-faint">Esc to close</span>
         </div>
-        <div className="max-h-[26rem] overflow-y-auto p-1">
-          {MODES.map((mode) => (
-            <button
-              key={mode.id}
-              type="button"
-              data-mode={mode.id}
-              onClick={() => addTab(mode.id)}
-              className="flex w-full items-start gap-3 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-surface-3"
-            >
-              <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded border border-edge bg-surface-1 font-mono text-xs text-accent-soft">
-                {MODE_GLYPH[mode.id]}
-              </span>
-              <span className="min-w-0">
-                <span className="block text-xs font-medium text-ink">{mode.name}</span>
-                <span className="block text-2xs leading-snug text-ink-faint">{mode.blurb}</span>
-              </span>
-            </button>
-          ))}
+        {/* Tall enough that one open category needs no scrolling at all — the
+            four headings plus the longest non-maths group come to about 31rem,
+            and scrolling a menu you have only just opened is how the category
+            above the one you picked ends up hidden. */}
+        <div ref={scrollerRef} className="max-h-[34rem] overflow-y-auto p-1">
+          {CATEGORIES.map((category) => {
+            const modes = MODES.filter((m) => m.category === category.id);
+            const isOpen = open === category.id;
+            return (
+              <div key={category.id}>
+                <button
+                  type="button"
+                  data-category={category.id}
+                  aria-expanded={isOpen}
+                  ref={(el) => {
+                    if (el) headerRefs.current.set(category.id, el);
+                    else headerRefs.current.delete(category.id);
+                  }}
+                  onClick={() => setOpen(isOpen ? ('' as ModeCategory) : category.id)}
+                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-surface-3"
+                >
+                  <span className="text-ink-faint">{isOpen ? <IconChevronDown size={11} /> : <IconChevronRight size={11} />}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-medium text-ink">{category.name}</span>
+                    <span className="block text-2xs leading-snug text-ink-faint">{category.blurb}</span>
+                  </span>
+                  <span className="shrink-0 text-2xs text-ink-faint">{modes.length}</span>
+                </button>
+                {isOpen && (
+                  <div className="pb-1 pl-3">
+                    {modes.map((mode) => (
+                      <button
+                        key={mode.id}
+                        type="button"
+                        data-mode={mode.id}
+                        onClick={() => addTab(mode.id)}
+                        className="flex w-full items-start gap-3 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-surface-3"
+                      >
+                        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded border border-edge bg-surface-1 font-mono text-xs text-accent-soft">
+                          {MODE_GLYPH[mode.id]}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-xs font-medium text-ink">{mode.name}</span>
+                          <span className="block text-2xs leading-snug text-ink-faint">{mode.blurb}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </>

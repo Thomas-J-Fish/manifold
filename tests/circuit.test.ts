@@ -29,9 +29,11 @@ function element(kind: ElementKind, x: number, y: number, over: Partial<CircuitE
     y,
     orientation: 'h',
     reversed: false,
-    values: { ...defaultValues(kind), ...(over.values ?? {}) },
     label: `${kind}${counter}`,
     ...over,
+    // After the spread, so an `over` that supplies only some values still gets
+    // the defaults for the rest. Written twice once, which meant the first
+    // copy was dead and an edit to it would have changed nothing.
     values: { ...defaultValues(kind), ...(over.values ?? {}) },
   };
 }

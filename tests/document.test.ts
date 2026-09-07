@@ -213,6 +213,84 @@ describe('project files', () => {
   });
 });
 
+describe('constructions in a project file', () => {
+  /* A construction is a graph of ids, and every field of it means something
+   * that cannot be recovered if it is dropped. The branch number in particular
+   * decides *which* of two intersections a figure is built on — lose it and a
+   * saved figure reopens hanging off the other one, which is a different
+   * figure that still looks plausible. */
+  const construct = () => {
+    const tab = makeTab('geometry');
+    tab.geometry = {
+      ...tab.geometry,
+      objects: [
+        { id: 'a', kind: 'point', parents: [], x: -1, y: 0, label: 'A', colour: '#8b7cf6', visible: true },
+        { id: 'b', kind: 'point', parents: [], x: 1, y: 0, label: 'B', colour: '#8b7cf6', visible: true },
+        { id: 'c1', kind: 'circle', parents: ['a', 'b'], label: '', colour: '#38bdf8', visible: true },
+        { id: 'c2', kind: 'circle', parents: ['b', 'a'], label: '', colour: '#38bdf8', visible: true },
+        // Branch 1: the *lower* crossing, deliberately not the default.
+        { id: 'p', kind: 'intersection', parents: ['c1', 'c2'], branch: 1, label: 'P', colour: '#34d399', visible: true },
+        { id: 'on', kind: 'pointOn', parents: ['c1'], value: 0.37, label: 'Q', colour: '#fbbf24', visible: true },
+      ],
+      eccentricity: 1.8,
+      locusDriver: 'on',
+      locusTracer: 'p',
+      showLocus: true,
+    };
+    return tab;
+  };
+
+  const reload = (tab: ReturnType<typeof construct>) => {
+    const project = makeProject();
+    project.tabs = [tab];
+    project.activeTabId = tab.id;
+    return deserialiseProject(serialiseProject(project)).project.tabs[0].geometry;
+  };
+
+  it('keeps every field a construction depends on', () => {
+    const back = reload(construct());
+    expect(back.objects).toHaveLength(6);
+    expect(back.objects.find((o) => o.id === 'p')!.branch).toBe(1);
+    expect(back.objects.find((o) => o.id === 'on')!.value).toBeCloseTo(0.37, 12);
+    expect(back.objects.find((o) => o.id === 'a')!.x).toBeCloseTo(-1, 12);
+    expect(back.eccentricity).toBeCloseTo(1.8, 12);
+    expect(back.locusDriver).toBe('on');
+    expect(back.locusTracer).toBe('p');
+  });
+
+  it('does not invent positions for things that have none', () => {
+    const back = reload(construct());
+    // A circle has no x of its own; writing one in would be a lie in the file
+    // and would round-trip the document into a different-looking one.
+    const circle = back.objects.find((o) => o.id === 'c1')!;
+    expect(circle.x).toBeUndefined();
+    expect(circle.branch).toBeUndefined();
+  });
+
+  it('drops an object whose parent is missing rather than keeping a dangling reference', () => {
+    const tab = construct();
+    tab.geometry = { ...tab.geometry, objects: tab.geometry.objects.filter((o) => o.id !== 'c2') };
+    const back = reload(tab);
+    // c2 is gone, so the intersection built on it goes too — and with it the
+    // locus that pointed at the intersection.
+    expect(back.objects.map((o) => o.id)).not.toContain('p');
+    expect(back.objects.map((o) => o.id)).toContain('c1');
+    expect(back.locusTracer).toBeNull();
+  });
+
+  it('replaces a kind it does not recognise instead of failing to open', () => {
+    const tab = construct();
+    tab.geometry = {
+      ...tab.geometry,
+      objects: tab.geometry.objects.map((o) =>
+        o.id === 'c1' ? ({ ...o, kind: 'hypercircle' as unknown as typeof o.kind }) : o,
+      ),
+    };
+    const back = reload(tab);
+    expect(back.objects.find((o) => o.id === 'c1')!.kind).toBe('point');
+  });
+});
+
 describe('CSV', () => {
   it('quotes only what needs quoting, and round-trips', () => {
     const csv = toCsv(['a', 'b,c', 'd'], [[1, 'x', 'has "quotes"'], [2, 'y', 'plain']]);

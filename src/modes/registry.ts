@@ -25,6 +25,7 @@ import { SignalsPanel, SignalsSurface, signalsCsv } from './SignalsMode';
 import { OptimisationPanel, OptimisationSurface, optimisationCsv } from './OptimisationMode';
 import { ReactionsPanel, ReactionsSurface, reactionsCsv } from './ReactionsMode';
 import { ThermodynamicsPanel, ThermodynamicsSurface, thermoCsv } from './ThermodynamicsMode';
+import { GeometryPanel, GeometrySurface, geometryCsv } from './GeometryMode';
 
 export interface ModeModule {
   Panel: ComponentType<{ tab: TabState }>;
@@ -51,4 +52,5 @@ export const MODE_REGISTRY: Record<TabMode, ModeModule> = {
   optimisation: { Panel: OptimisationPanel, Surface: OptimisationSurface, toCsv: optimisationCsv },
   reactions: { Panel: ReactionsPanel, Surface: ReactionsSurface, toCsv: reactionsCsv },
   thermodynamics: { Panel: ThermodynamicsPanel, Surface: ThermodynamicsSurface, toCsv: thermoCsv },
+  geometry: { Panel: GeometryPanel, Surface: GeometrySurface, toCsv: geometryCsv },
 };

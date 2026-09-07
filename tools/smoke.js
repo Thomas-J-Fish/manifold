@@ -64,10 +64,26 @@ async function canvasHasContent(page, index = 0) {
  * their visible label: the label also appears in the tab strip and in the
  * status bar, and a text selector that matches three elements fails in a way
  * that looks like a hang. */
+/* The picker is two levels: a subject, then the modes inside it. Only one
+ * subject is open at a time, so a mode's button may not exist yet — open every
+ * heading in turn until it does. Cheaper than teaching the tests which subject
+ * each mode belongs to, and it keeps working when one is moved. */
+async function revealMode(page, id) {
+  const button = `button[data-mode="${id}"]`;
+  if (await page.locator(button).count()) return button;
+  for (const category of await page.locator('[data-category]').all()) {
+    await category.click();
+    await page.waitForTimeout(80);
+    if (await page.locator(button).count()) return button;
+  }
+  return button;
+}
+
 async function selectMode(page, id) {
   await page.click('[data-testid="new-tab"]');
-  await page.waitForSelector(`button[data-mode="${id}"]`, { timeout: 6000 });
-  await page.click(`button[data-mode="${id}"]`);
+  const button = await revealMode(page, id);
+  await page.waitForSelector(button, { timeout: 6000 });
+  await page.click(button);
   await page.waitForTimeout(500);
 }
 
@@ -619,6 +635,75 @@ function step(label) {
   }
   await page.screenshot({ path: path.join(SHOT_DIR, '23-thermodynamics.png') });
 
+  step('Geometry');
+  await selectMode(page, 'geometry');
+  await page.waitForTimeout(1400);
+
+  {
+    /* Opens on Euclid I.1: two circles of radius AB and their crossing. The
+     * triangle has to be equilateral — three 60° angles — and it has to *stay*
+     * equilateral when a vertex is dragged, which is the whole claim of the
+     * mode and cannot be checked by looking at one position. */
+    const text = await page.locator('body').innerText();
+    const angles = /Angles\s+([\d.]+)° · ([\d.]+)° · ([\d.]+)°/.exec(text);
+    check(
+      'the construction is equilateral',
+      angles && [1, 2, 3].every((i) => Math.abs(Number(angles[i]) - 60) < 0.01),
+      angles ? angles.slice(1, 4).join(' ') : text.slice(0, 400),
+    );
+    const areaBefore = /Area\s+([\d.]+)/.exec(text);
+
+    /* Where is the point on screen?
+     *
+     * Working it out from the viewport means reproducing the plot's own
+     * transform here — including the axis gutters, whose width depends on how
+     * wide the tick labels turned out. Getting that subtly wrong grabs empty
+     * space, the drag does nothing, and the test reports a broken feature that
+     * is working fine. So the plot is asked instead: it prints the world
+     * coordinates under the cursor, and two probes give the exact mapping. */
+    const box = await page.locator('canvas').last().boundingBox();
+    const probe = async (px, py) => {
+      await page.mouse.move(px, py);
+      await page.waitForTimeout(120);
+      const text = await page.locator('.font-mono.text-2xs').last().innerText();
+      const m = /(-?[\d.]+),\s*(-?[\d.]+)/.exec(text);
+      return m ? { x: Number(m[1]), y: Number(m[2]) } : null;
+    };
+    const p1 = { px: box.x + box.width * 0.35, py: box.y + box.height * 0.35 };
+    const p2 = { px: box.x + box.width * 0.65, py: box.y + box.height * 0.65 };
+    const w1 = await probe(p1.px, p1.py);
+    const w2 = await probe(p2.px, p2.py);
+    check('the plot reports the coordinates under the cursor', !!w1 && !!w2, `${JSON.stringify(w1)} ${JSON.stringify(w2)}`);
+    const sx = (p2.px - p1.px) / (w2.x - w1.x);
+    const sy = (p2.py - p1.py) / (w2.y - w1.y);
+    const toPixels = (x, y) => ({ px: p1.px + (x - w1.x) * sx, py: p1.py + (y - w1.y) * sy });
+    const from = toPixels(-1.5, -1);
+    await page.mouse.move(from.px, from.py);
+    await page.mouse.down();
+    for (let i = 1; i <= 8; i++) {
+      await page.mouse.move(from.px - i * 6, from.py - i * 5);
+      await page.waitForTimeout(30);
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+
+    const after = await page.locator('body').innerText();
+    const anglesAfter = /Angles\s+([\d.]+)° · ([\d.]+)° · ([\d.]+)°/.exec(after);
+    const areaAfter = /Area\s+([\d.]+)/.exec(after);
+    check(
+      'dragging a vertex actually moves the figure',
+      areaBefore && areaAfter && Math.abs(Number(areaAfter[1]) - Number(areaBefore[1])) > 0.05,
+      areaBefore && areaAfter ? `${areaBefore[1]} → ${areaAfter[1]}` : 'no area shown',
+    );
+    check(
+      'and it is still equilateral afterwards',
+      anglesAfter && [1, 2, 3].every((i) => Math.abs(Number(anglesAfter[i]) - 60) < 0.01),
+      anglesAfter ? anglesAfter.slice(1, 4).join(' ') : after.slice(0, 400),
+    );
+    check('no error boundary', !/could not start/i.test(after));
+  }
+  await page.screenshot({ path: path.join(SHOT_DIR, '24-geometry.png') });
+
   /* ---- the interface chrome actually works.
    *
    * Three bugs that every existing check sailed past, because each one is about
@@ -631,6 +716,8 @@ function step(label) {
   const tabsBefore = await page.locator('[draggable="true"]').count();
   await page.click('[data-testid="new-tab"]');
   await page.waitForTimeout(250);
+  await revealMode(page, 'statistics');
+  await page.waitForTimeout(150);
   const pickerVisible = await page.evaluate(() => {
     const item = document.querySelector('button[data-mode="statistics"]');
     if (!item) return { shown: false, why: 'not rendered' };
@@ -644,7 +731,7 @@ function step(label) {
   });
   check('the mode picker is actually visible', pickerVisible.shown, pickerVisible.why);
 
-  await page.click('button[data-mode="statistics"]');
+  await page.click(await revealMode(page, 'statistics'));
   await page.waitForTimeout(500);
   const tabsAfter = await page.locator('[draggable="true"]').count();
   check('picking a mode opens that kind of tab', tabsAfter === tabsBefore + 1, `${tabsBefore} → ${tabsAfter}`);
@@ -791,6 +878,49 @@ function step(label) {
   const planes = await canvasHasContent(page);
   check('the 3D plane scene renders', planes.ok, planes.reason);
   await page.screenshot({ path: path.join(SHOT_DIR, '10-planes.png') });
+
+  /* Orbiting has to survive the whole gesture, not just its first event.
+   *
+   * The gesture handlers used to be re-bound whenever the camera changed, and
+   * since the camera changes on every mouse move, the drag state was wiped
+   * after the first one: the view rotated by a single mouse-move's worth and
+   * then ignored the rest. A test that presses, moves once and releases passes
+   * that bug happily — which is exactly what the earlier one did. So this
+   * moves repeatedly and insists the camera is still moving at the *end* of
+   * the drag as well as at the start. */
+  {
+    const readCamera = () =>
+      page.evaluate(() => {
+        const sliders = [...document.querySelectorAll('input[type=range]')];
+        return sliders.map((s) => Number(s.value));
+      });
+
+    const box = await page.locator('canvas').last().boundingBox();
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+
+    const before = await readCamera();
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + 14, cy + 4);
+    await page.waitForTimeout(70);
+    const afterFirst = await readCamera();
+    for (let i = 2; i <= 8; i++) {
+      await page.mouse.move(cx + i * 14, cy + i * 4);
+      await page.waitForTimeout(40);
+    }
+    const afterMany = await readCamera();
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+
+    const moved = (a, b) => a.length === b.length && a.some((v, i) => Math.abs(v - b[i]) > 1e-9);
+    check('dragging the 3D view starts orbiting it', moved(before, afterFirst), `${before} → ${afterFirst}`);
+    check(
+      'and keeps orbiting for the rest of the drag',
+      moved(afterFirst, afterMany),
+      `stuck at ${afterFirst} after the first move`,
+    );
+  }
 
   await page.click('button[role="tab"]:has-text("Calc")');
   await page.waitForTimeout(800);

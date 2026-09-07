@@ -3,7 +3,7 @@ import { bridge } from '../../core/bridge';
 import { EXAMPLES } from '../../core/examples';
 import { useStore } from '../../core/store';
 import { FUNCTION_GROUPS } from '../../core/math/functions';
-import { MODES, type TabMode } from '../../core/types';
+import { CATEGORIES, MODES, type ModeCategory, type TabMode } from '../../core/types';
 import { IconChevronDown, IconClose, IconSearch } from '../ui/Icons';
 
 function Modal({
@@ -185,11 +185,18 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
  * student reads in a second, and the count beside each says what is in there
  * before it is opened. Nothing is open to begin with, which is the point —
  * the first decision is "what am I trying to do", not "which of these
- * forty-five".
+ * seventeen".
  */
 export function ExamplesDialog({ onClose }: { onClose: () => void }) {
   const commit = useStore((s) => s.commit);
   const [open, setOpen] = useState<TabMode | null>(null);
+  /* Subject first, mode second, examples third.
+   *
+   * With seventeen modes the mode headings had themselves become the wall the
+   * grouping was meant to remove — nearly a screenful of collapsed rows before
+   * a single example is visible. One subject open at a time keeps the whole
+   * dialog to a glance. */
+  const [openCategory, setOpenCategory] = useState<ModeCategory | null>('mathematics');
 
   const byMode = useMemo(() => {
     const groups = new Map<TabMode, typeof EXAMPLES>();
@@ -219,7 +226,39 @@ export function ExamplesDialog({ onClose }: { onClose: () => void }) {
       width="max-w-3xl"
     >
       <div className="space-y-1.5">
-        {MODES.map((mode) => {
+        {CATEGORIES.map((category) => {
+          const modesHere = MODES.filter((m) => m.category === category.id && (byMode.get(m.id) ?? []).length);
+          if (!modesHere.length) return null;
+          const categoryOpen = openCategory === category.id;
+          const total = modesHere.reduce((n, m) => n + (byMode.get(m.id) ?? []).length, 0);
+          return (
+            <div key={category.id} className="overflow-hidden rounded-lg border border-edge bg-surface-0">
+              <button
+                type="button"
+                data-example-category={category.id}
+                aria-expanded={categoryOpen}
+                onClick={() => {
+                  setOpenCategory(categoryOpen ? null : category.id);
+                  setOpen(null);
+                }}
+                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
+              >
+                <IconChevronDown
+                  size={13}
+                  className={`shrink-0 text-ink-faint transition-transform ${categoryOpen ? '' : '-rotate-90'}`}
+                />
+                <span className="min-w-0">
+                  <span className="block text-xs font-semibold text-ink">{category.name}</span>
+                  <span className="block text-2xs leading-snug text-ink-faint">{category.blurb}</span>
+                </span>
+                <span className="ml-auto shrink-0 rounded-full border border-edge px-1.5 py-0.5 text-2xs text-ink-faint">
+                  {total}
+                </span>
+              </button>
+
+              {categoryOpen && (
+                <div className="space-y-1.5 border-t border-edge p-1.5">
+        {modesHere.map((mode) => {
           const list = byMode.get(mode.id) ?? [];
           if (!list.length) return null;
           const expanded = open === mode.id;
@@ -256,6 +295,11 @@ export function ExamplesDialog({ onClose }: { onClose: () => void }) {
                       <span className="mt-1 block text-2xs leading-relaxed text-ink-faint">{ex.blurb}</span>
                     </button>
                   ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
                 </div>
               )}
             </div>

@@ -149,27 +149,49 @@ export const Scene3D = forwardRef<Scene3DHandle, Props>(function Scene3D(
 
   // ---------------------------------------------------------------- gestures
 
+  /* The drag lives in refs, and the listeners are attached once.
+   *
+   * This effect used to depend on `onCameraChange`, and every caller passes an
+   * inline arrow — a new function identity on every render. So the first
+   * pointermove called back, the store updated, the component re-rendered, and
+   * this effect tore itself down and ran again with a fresh `let dragging =
+   * false`. The camera therefore moved by exactly one mouse-move's worth and
+   * then ignored the rest of the gesture, which is indistinguishable from
+   * orbiting not working at all.
+   *
+   * Keeping the mutable drag state in refs and reading the callback through a
+   * ref means the handlers never need replacing, so a drag survives the
+   * re-renders it is itself causing. */
+  const onCameraChangeRef = useRef(onCameraChange);
+  onCameraChangeRef.current = onCameraChange;
+  const dragRef = useRef<{ active: boolean; x: number; y: number; mode: 'orbit' | 'pan' }>({
+    active: false,
+    x: 0,
+    y: 0,
+    mode: 'orbit',
+  });
+
   useEffect(() => {
     const el = mountRef.current;
-    if (!el || !onCameraChange) return;
-    let dragging = false;
-    let lastX = 0;
-    let lastY = 0;
-    let mode: 'orbit' | 'pan' = 'orbit';
+    if (!el) return;
+    const drag = dragRef.current;
 
     const down = (e: PointerEvent) => {
-      dragging = true;
-      mode = e.shiftKey || e.button === 1 ? 'pan' : 'orbit';
-      lastX = e.clientX;
-      lastY = e.clientY;
+      if (!onCameraChangeRef.current) return;
+      drag.active = true;
+      drag.mode = e.shiftKey || e.button === 1 ? 'pan' : 'orbit';
+      drag.x = e.clientX;
+      drag.y = e.clientY;
       el.setPointerCapture(e.pointerId);
     };
     const move = (e: PointerEvent) => {
-      if (!dragging) return;
-      const dx = e.clientX - lastX;
-      const dy = e.clientY - lastY;
-      lastX = e.clientX;
-      lastY = e.clientY;
+      const onCameraChange = onCameraChangeRef.current;
+      if (!drag.active || !onCameraChange) return;
+      const dx = e.clientX - drag.x;
+      const dy = e.clientY - drag.y;
+      drag.x = e.clientX;
+      drag.y = e.clientY;
+      const mode = drag.mode;
       const c = cameraRef.current;
       if (mode === 'orbit') {
         onCameraChange({
@@ -194,7 +216,7 @@ export const Scene3D = forwardRef<Scene3DHandle, Props>(function Scene3D(
       }
     };
     const up = (e: PointerEvent) => {
-      dragging = false;
+      drag.active = false;
       try {
         el.releasePointerCapture(e.pointerId);
       } catch {
@@ -202,6 +224,8 @@ export const Scene3D = forwardRef<Scene3DHandle, Props>(function Scene3D(
       }
     };
     const wheel = (e: WheelEvent) => {
+      const onCameraChange = onCameraChangeRef.current;
+      if (!onCameraChange) return;
       e.preventDefault();
       const c = cameraRef.current;
       onCameraChange({ ...c, distance: Math.max(1.2, Math.min(120, c.distance * Math.exp(e.deltaY * 0.0014))) });
@@ -219,7 +243,9 @@ export const Scene3D = forwardRef<Scene3DHandle, Props>(function Scene3D(
       el.removeEventListener('pointercancel', up);
       el.removeEventListener('wheel', wheel);
     };
-  }, [onCameraChange]);
+    // Attached once, on mount. Everything that varies is read through a ref,
+    // so nothing here goes stale and nothing needs re-binding mid-gesture.
+  }, []);
 
   useImperativeHandle(ref, () => ({
     toDataUrl() {

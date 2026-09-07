@@ -12,6 +12,7 @@
  */
 
 import {
+  defaultGeometry,
   defaultOptimisation,
   defaultReactions,
   defaultSignals,
@@ -22,6 +23,7 @@ import {
   uid,
 } from './defaults';
 import { defaultValues, SPEC_BY_KIND } from './physics/circuit';
+import type { GeoObject } from './math/geometry';
 import {
   MODE_BY_ID,
   SERIES_COLOURS,
@@ -226,6 +228,7 @@ function loadTab(rawTab: unknown, index: number, warnings: string[]): TabState |
     optimisation: sanitiseOptimisation(merged.optimisation),
     reactions: sanitiseReactions(merged.reactions),
     thermodynamics: sanitiseThermo(merged.thermodynamics),
+    geometry: sanitiseGeometry(merged.geometry),
   };
 }
 
@@ -673,6 +676,84 @@ function sanitiseOptimisation(cfg: TabState['optimisation']): TabState['optimisa
     constraint: text(cfg.constraint, fallback.constraint),
     showGradients: flag(cfg.showGradients, true),
     showEquations: flag(cfg.showEquations, true),
+  };
+}
+
+const GEOMETRY_VIEWS = new Set(['construct', 'conics', 'transform']);
+const GEO_KINDS = new Set([
+  'point', 'pointOn', 'intersection', 'line', 'ray', 'segment', 'parallel', 'perpendicular',
+  'circle', 'circleRadius', 'midpoint', 'bisector', 'angleBisector',
+  'reflect', 'rotate', 'translate', 'dilate', 'conic', 'polygon',
+]);
+const GEO_TOOLS = new Set([
+  'select', 'point', 'pointOn', 'intersection', 'segment', 'line', 'ray', 'circle', 'midpoint',
+  'bisector', 'perpendicular', 'parallel', 'angleBisector', 'polygon', 'conic',
+  'reflect', 'rotate', 'translate', 'dilate',
+]);
+
+function sanitiseGeometry(cfg: TabState['geometry']): TabState['geometry'] {
+  const fallback = defaultGeometry();
+  const pick = <T extends string>(v: unknown, allowed: Set<string>, dflt: T): T =>
+    allowed.has(text(v, '')) ? (v as T) : dflt;
+
+  const rawObjects = Array.isArray(cfg.objects) ? cfg.objects : [];
+  const objects = rawObjects.slice(0, 400).map((raw) => {
+    const o: Record<string, unknown> = isObject(raw) ? raw : {};
+    const parents = (Array.isArray(o.parents) ? o.parents : [])
+      .filter((v): v is string => typeof v === 'string')
+      .slice(0, 8);
+    /* The optional fields stay optional.
+     *
+     * A line has no x, and a midpoint has no branch. Writing a zero into every
+     * slot would round-trip a saved file into a different-looking one, bloat
+     * the JSON, and — worse — suggest to anyone reading it that a bisector has
+     * a position of its own. Each is carried across only when it is actually
+     * there and actually a number. */
+    const out: GeoObject = {
+      id: text(o.id, uid('g')),
+      kind: pick(o.kind, GEO_KINDS, 'point' as const),
+      parents,
+      label: text(o.label, '').slice(0, 24),
+      colour: text(o.colour, SERIES_COLOURS[0]),
+      visible: flag(o.visible, true),
+    };
+    if (typeof o.x === 'number' && Number.isFinite(o.x)) out.x = o.x;
+    if (typeof o.y === 'number' && Number.isFinite(o.y)) out.y = o.y;
+    if (typeof o.value === 'number' && Number.isFinite(o.value)) out.value = o.value;
+    if (typeof o.branch === 'number') out.branch = o.branch >= 1 ? 1 : 0;
+    return out;
+  });
+
+  /* Parents that do not exist would evaluate as invalid for ever, and a
+   * construction whose objects reference each other in a cycle would too — but
+   * the evaluator reports that itself, so only dangling references are pruned
+   * here. Objects are kept in order, and a parent may legitimately appear after
+   * its child, so membership is checked against the whole set. */
+  const ids = new Set(objects.map((o) => o.id));
+  const kept = objects.filter((o) => o.parents.every((parent) => ids.has(parent)));
+
+  const idOf = (v: unknown): string | null => {
+    const s = text(v, '');
+    return s && kept.some((o) => o.id === s) ? s : null;
+  };
+
+  return {
+    ...cfg,
+    view: pick(cfg.view, GEOMETRY_VIEWS, fallback.view),
+    objects: kept,
+    tool: pick(cfg.tool, GEO_TOOLS, 'select' as const),
+    selection: (Array.isArray(cfg.selection) ? cfg.selection : [])
+      .filter((v): v is string => typeof v === 'string' && kept.some((o) => o.id === v))
+      .slice(0, 8),
+    showLabels: flag(cfg.showLabels, true),
+    showLocus: flag(cfg.showLocus, false),
+    locusDriver: idOf(cfg.locusDriver),
+    locusTracer: idOf(cfg.locusTracer),
+    rotateAngle: Math.max(-360, Math.min(360, number(cfg.rotateAngle, fallback.rotateAngle))),
+    dilateFactor: Math.max(-20, Math.min(20, number(cfg.dilateFactor, fallback.dilateFactor))),
+    // Zero or negative is not a conic, and infinity is not a number.
+    eccentricity: Math.max(1e-4, Math.min(20, number(cfg.eccentricity, fallback.eccentricity))),
+    showConicDetail: flag(cfg.showConicDetail, true),
   };
 }
 
