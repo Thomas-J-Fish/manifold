@@ -544,7 +544,11 @@ export function defaultLoan(): LoanConfig {
     view: 'balance',
     world: {
       principal: 500_000,
+      // The payment is the input by default; switch the driver to 'term' and
+      // the payment becomes the answer instead.
+      driver: 'payment',
       capitalPayment: 2_500,
+      targetMonths: 200,
       periods: [
         { id: uid('rate'), months: 2, annualRate: 1.09, label: 'Fixed' },
         // The final period runs to the end whatever its stated length.

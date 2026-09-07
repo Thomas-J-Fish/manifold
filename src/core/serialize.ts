@@ -684,6 +684,7 @@ function sanitiseOptimisation(cfg: TabState['optimisation']): TabState['optimisa
 const LOAN_VIEWS = new Set(['balance', 'monthly', 'cumulative', 'schedule']);
 const RATE_CONVERSIONS = new Set(['nominal', 'effective']);
 const INTEREST_HANDLING = new Set(['paid', 'capitalised']);
+const LOAN_DRIVERS = new Set(['payment', 'term']);
 
 function sanitiseLoan(cfg: TabState['loan']): TabState['loan'] {
   const fallback = defaultLoan();
@@ -711,7 +712,11 @@ function sanitiseLoan(cfg: TabState['loan']): TabState['loan'] {
     view: pick(cfg.view, LOAN_VIEWS, fallback.view),
     world: {
       principal: Math.max(0, Math.min(1e12, number(w.principal, fallback.world.principal))),
+      driver: pick(w.driver, LOAN_DRIVERS, fallback.world.driver),
       capitalPayment: Math.max(0, Math.min(1e12, number(w.capitalPayment, fallback.world.capitalPayment))),
+      // A term of zero months has no payment that satisfies it, and a negative
+      // one is not a length of time.
+      targetMonths: Math.max(1, Math.min(1200, Math.round(number(w.targetMonths, fallback.world.targetMonths)))),
       periods: periods.length ? periods : fallback.world.periods,
       conversion: pick(w.conversion, RATE_CONVERSIONS, fallback.world.conversion),
       interestHandling: pick(w.interestHandling, INTEREST_HANDLING, fallback.world.interestHandling),

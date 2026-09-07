@@ -737,6 +737,67 @@ function step(label) {
     await page.waitForTimeout(700);
     const rows = await page.locator('tbody tr').count();
     check('the schedule lists months', rows > 10, `${rows} rows`);
+    await page.click('[role="tab"]:has-text("Balance")');
+    await page.waitForTimeout(500);
+
+    /* ---- the term as the input rather than the answer.
+     *
+     * The slider cannot land on a specific term, so the two typed boxes are
+     * the feature: fourteen years and ten months is 178 months, and with the
+     * interest paid separately the balance falls by the payment alone, so the
+     * capital needed is £500,000 ÷ 178 = £2,808.99 — a closed form, not a
+     * figure read off this code. */
+    await page.click('button:text-is("The term")');
+    await page.waitForTimeout(600);
+    const years = page.locator('[data-testid="loan-years"] input');
+    const months = page.locator('[data-testid="loan-months"] input');
+    check('the term boxes appear', (await years.count()) === 1 && (await months.count()) === 1);
+    await years.fill('14');
+    await years.press('Enter');
+    await months.fill('10');
+    await months.press('Enter');
+    await page.waitForTimeout(700);
+
+    const termText = await page.locator('body').innerText();
+    check(
+      'fourteen years and ten months is 178 months',
+      /Clear in\s+178 months/.test(termText),
+      termText.slice(0, 300),
+    );
+    const needs = /That needs\s+£([\d,]+\.\d\d)\s+of capital a month/.exec(termText);
+    check(
+      'and it needs £2,808.99 of capital a month',
+      needs && Math.abs(Number(needs[1].replace(/,/g, '')) - 2808.99) < 0.02,
+      needs ? needs[1] : termText.slice(0, 600),
+    );
+    await page.screenshot({ path: path.join(SHOT_DIR, '25b-loan-term.png') });
+
+    /* ---- the typed rate box.
+     *
+     * Fifteen points across a few hundred pixels means the slider cannot be
+     * dragged to 1.09 reliably; the box has to reach the model, and the
+     * label above the slider is where that shows. */
+    const rate = page.locator('[data-testid="loan-rate"] input').first();
+    await rate.fill('2.75');
+    await rate.press('Enter');
+    await page.waitForTimeout(600);
+    const rateText = await page.locator('body').innerText();
+    // innerText applies text-transform, and the label is rendered upper case.
+    check('the typed rate reaches the model', /2\.75% a year/i.test(rateText), rateText.slice(0, 400));
+    // 2.75%/12 = 0.229167% a month, which is the conversion working too.
+    check('and converts to a monthly rate', /0\.2292% a month/i.test(rateText), rateText.slice(0, 400));
+
+    await page.click('button:text-is("The payment")');
+    await page.waitForTimeout(600);
+    const backText = await page.locator('body').innerText();
+    /* Switching back carries the answer over as the new input, so the loan
+     * must not jump: still 178 months, not the 200 it started at. */
+    check(
+      'switching back keeps the same loan',
+      /Clear in\s+178 months/.test(backText),
+      backText.slice(0, 300),
+    );
+    check('no error boundary after the term work', !/could not start/i.test(backText));
   }
   await page.screenshot({ path: path.join(SHOT_DIR, '25-loan.png') });
 

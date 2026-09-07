@@ -41,11 +41,24 @@ export interface RatePeriod {
 export type RateConversion = 'nominal' | 'effective';
 export type InterestHandling = 'paid' | 'capitalised';
 
+/**
+ * Which of the payment and the term is the input.
+ *
+ * They are two ways of asking one question. Fix the payment and the term
+ * follows; fix the term and the payment follows. Borrowers arrive with either
+ * — "what does £2,500 a month get me?" and "I want this gone in fifteen years,
+ * what does that cost?" are the same arithmetic run in opposite directions.
+ */
+export type LoanDriver = 'payment' | 'term';
+
 export interface LoanWorld {
   /** What is owed right now, at month zero. */
   principal: number;
-  /** Capital repaid every month, on top of any interest. */
+  driver: LoanDriver;
+  /** Capital repaid every month. Used when the driver is the payment. */
   capitalPayment: number;
+  /** The term to hit, in months. Used when the driver is the term. */
+  targetMonths: number;
   periods: RatePeriod[];
   conversion: RateConversion;
   interestHandling: InterestHandling;
@@ -126,6 +139,66 @@ export function rateAtMonth(periods: RatePeriod[], month: number): number {
 }
 
 /**
+ * The balance after a given number of months, allowed to go negative.
+ *
+ * Deliberately unclamped, which is what makes it usable as the function to
+ * solve. `amortise` stops at zero because a real loan does; a root finder needs
+ * to see *how far past* zero a payment overshoots, or it has nothing to bisect
+ * on — every payment large enough would look identical.
+ */
+function balanceAfter(world: LoanWorld, payment: number, months: number): number {
+  let balance = Math.max(0, world.principal);
+  for (let month = 1; month <= months; month++) {
+    const rate = monthlyRate(rateAtMonth(world.periods, month), world.conversion);
+    const extra = world.overpaymentMonth === month ? Math.max(0, world.overpayment) : 0;
+    balance =
+      world.interestHandling === 'capitalised'
+        ? balance * (1 + rate) - payment - extra
+        : balance - payment - extra;
+  }
+  return balance;
+}
+
+/**
+ * The monthly capital payment that clears the loan in exactly `targetMonths`.
+ *
+ * Found by bisection rather than by a formula, for the same reason the schedule
+ * is marched rather than looked up: the annuity formula inverts cleanly only
+ * for a single rate, and a fixed period ending partway through is the normal
+ * case. Bisection needs only that the balance after N months falls as the
+ * payment rises, which is true for every arrangement here — including a
+ * one-off overpayment, which no closed form accommodates at all.
+ *
+ * With the interest paid separately this reduces to principal ÷ months, and the
+ * tests check that it does.
+ */
+export function solvePayment(world: LoanWorld): number {
+  const months = Math.max(1, Math.round(world.targetMonths));
+  if (!(world.principal > 0)) return 0;
+
+  // Paying nothing leaves the whole debt; the bracket has to contain the root.
+  if (balanceAfter(world, 0, months) <= 0) return 0;
+  let high = Math.max(1, world.principal);
+  // Doubling up rather than guessing an upper bound: at a high enough rate the
+  // payment that clears in one month is a long way above the principal.
+  for (let i = 0; i < 60 && balanceAfter(world, high, months) > 0; i++) high *= 2;
+
+  let low = 0;
+  for (let i = 0; i < 200; i++) {
+    const mid = (low + high) / 2;
+    if (balanceAfter(world, mid, months) > 0) low = mid;
+    else high = mid;
+    if (high - low < 1e-9) break;
+  }
+  return high;
+}
+
+/** The capital payment actually in force, whichever way round the loan is set up. */
+export function effectivePayment(world: LoanWorld): number {
+  return world.driver === 'term' ? solvePayment(world) : Math.max(0, world.capitalPayment);
+}
+
+/**
  * Runs the loan out to its end.
  *
  * The loop stops on the month the balance reaches zero, so the last row shows
@@ -136,7 +209,7 @@ export function rateAtMonth(periods: RatePeriod[], month: number): number {
 export function amortise(world: LoanWorld): LoanSchedule {
   const rows: LoanMonth[] = [];
   const limit = Math.max(1, Math.min(12_000, Math.round(world.maxMonths)));
-  const payment = Math.max(0, world.capitalPayment);
+  const payment = effectivePayment(world);
 
   let balance = Math.max(0, world.principal);
   let cumulativeInterest = 0;
@@ -231,7 +304,7 @@ function describe(state: {
   limit: number;
   world: LoanWorld;
 }): string {
-  if (state.world.capitalPayment <= 0) {
+  if (effectivePayment(state.world) <= 0) {
     return 'Nothing is being repaid, so the balance never falls.';
   }
   if (state.neverRepays) {

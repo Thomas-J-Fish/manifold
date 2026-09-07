@@ -103,5 +103,12 @@ export default defineConfig(({ mode }) => {
     },
     worker: { format: 'es' },
     server: { port: 5273, strictPort: true },
+    /* Every test lives in tests/, and saying so keeps the runner out of the
+     * working folders beside it. Vitest's default pattern is the whole tree,
+     * so a file parked in _to_delete/ — where retired work goes rather than
+     * being deleted — is still collected, and fails on imports that no longer
+     * resolve from its new depth. A stale copy of a test is worse than no
+     * copy: it reports a failure nobody has broken. */
+    test: { include: ['tests/**/*.test.ts'] },
   };
 });

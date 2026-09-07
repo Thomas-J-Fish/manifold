@@ -6,6 +6,7 @@ import { SERIES_COLOURS } from '../core/types';
 import {
   amortise,
   compare,
+  effectivePayment,
   formatTerm,
   monthlyRate,
   rateChangeMonths,
@@ -200,6 +201,11 @@ export function LoanPanel({ tab }: { tab: TabState }) {
     setWorld({ periods: cfg.world.periods.map((p) => (p.id === id ? { ...p, ...patch } : p)) });
 
   const last = cfg.world.periods.length - 1;
+  /* What the term implies, computed here so the switch above can carry it
+   * across and the callout can state it. Cheap: a couple of hundred iterations
+   * of a loop over a few hundred months. */
+  const solved = effectivePayment({ ...cfg.world, driver: 'term' });
+  const firstInterest = amortise(cfg.world).rows[0]?.interest ?? null;
 
   return (
     <>
@@ -227,27 +233,115 @@ export function LoanPanel({ tab }: { tab: TabState }) {
           }}
         />
 
-        <Field
-          label={`Capital repaid each month — ${exact(cfg.world.capitalPayment, cfg.currency)}`}
-          hint="What comes off the debt itself, before any interest."
-        >
-          <Slider
-            value={cfg.world.capitalPayment}
-            min={0}
-            max={10_000}
-            step={50}
-            onChange={(capitalPayment) => setWorld({ capitalPayment })}
+        {/* The payment and the term are the same fact seen from two sides, so
+            one of them is always the input and the other is always the answer.
+            Showing both as editable would beg the question of which wins. */}
+        <Field label="Which do you want to fix?">
+          <SegmentedControl
+            size="sm"
+            value={cfg.world.driver}
+            onChange={(driver) => {
+              commit();
+              /* Carry the current answer over as the new input, so switching
+                 does not move the loan. Fixing the term after setting a payment
+                 should start from the term that payment produced. */
+              if (driver === 'term') {
+                const months = amortise(cfg.world).payoffMonth;
+                setWorld({ driver, targetMonths: months && months > 0 ? months : cfg.world.targetMonths });
+              } else {
+                setWorld({ driver, capitalPayment: solved });
+              }
+            }}
+            options={[
+              { value: 'payment', label: 'The payment' },
+              { value: 'term', label: 'The term' },
+            ]}
           />
         </Field>
-        <NumberField
-          value={cfg.world.capitalPayment}
-          min={0}
-          step={100}
-          onChange={(capitalPayment) => {
-            commit();
-            setWorld({ capitalPayment });
-          }}
-        />
+
+        {cfg.world.driver === 'payment' ? (
+          <>
+            <Field
+              label={`Capital repaid each month — ${exact(cfg.world.capitalPayment, cfg.currency)}`}
+              hint="What comes off the debt itself, before any interest."
+            >
+              <Slider
+                value={cfg.world.capitalPayment}
+                min={0}
+                max={10_000}
+                step={50}
+                onChange={(capitalPayment) => setWorld({ capitalPayment })}
+              />
+            </Field>
+            <NumberField
+              value={cfg.world.capitalPayment}
+              min={0}
+              step={100}
+              onChange={(capitalPayment) => {
+                commit();
+                setWorld({ capitalPayment });
+              }}
+            />
+          </>
+        ) : (
+          <>
+            <Field label={`Clear it in ${formatTerm(cfg.world.targetMonths)}`}>
+              <Slider
+                value={cfg.world.targetMonths}
+                min={1}
+                max={480}
+                step={1}
+                onChange={(targetMonths) => setWorld({ targetMonths })}
+              />
+            </Field>
+            {/* Years and months separately, because that is how a term is
+                said out loud — nobody asks for a hundred and seventy-eight
+                months. Either box drives the same underlying number. */}
+            <Row>
+              <div className="flex-1" data-testid="loan-years">
+                <Field label="Years">
+                  <NumberField
+                    value={Math.floor(cfg.world.targetMonths / 12)}
+                    min={0}
+                    max={40}
+                    step={1}
+                    onChange={(years) => {
+                      commit();
+                      setWorld({
+                        targetMonths: Math.max(1, Math.round(years) * 12 + (cfg.world.targetMonths % 12)),
+                      });
+                    }}
+                  />
+                </Field>
+              </div>
+              <div className="flex-1" data-testid="loan-months">
+                <Field label="Months">
+                  <NumberField
+                    value={cfg.world.targetMonths % 12}
+                    min={0}
+                    max={11}
+                    step={1}
+                    onChange={(months) => {
+                      commit();
+                      setWorld({
+                        targetMonths: Math.max(
+                          1,
+                          Math.floor(cfg.world.targetMonths / 12) * 12 + Math.round(months),
+                        ),
+                      });
+                    }}
+                  />
+                </Field>
+              </div>
+            </Row>
+            <Callout kind="info">
+              That needs <strong>{exact(solved, cfg.currency)}</strong> of capital a month
+              {cfg.world.interestHandling === 'paid' && firstInterest !== null
+                ? `, plus ${exact(firstInterest, cfg.currency)} of interest next month.`
+                : '.'}
+            </Callout>
+          </>
+        )}
       </Panel>
 
       <Panel title="Interest rate">
@@ -279,16 +373,48 @@ export function LoanPanel({ tab }: { tab: TabState }) {
                   onChange={(annualRate) => patchPeriod(p.id, { annualRate })}
                 />
               </Field>
+              {/* A typed box as well as the slider. Fifteen percentage points
+                  across a few hundred pixels puts about 0.05% under each one,
+                  so landing on 1.09 exactly by dragging is a matter of luck —
+                  and the difference between 1.09% and 1.10% on half a million
+                  pounds is real money. */}
+              <Row>
+                <div className="flex-1" data-testid="loan-rate">
+                  <NumberField
+                    value={p.annualRate}
+                    min={0}
+                    max={100}
+                    step={0.01}
+                    suffix="%"
+                    onChange={(annualRate) => {
+                      commit();
+                      patchPeriod(p.id, { annualRate });
+                    }}
+                  />
+                </div>
+              </Row>
               {i !== last && (
-                <Field label={`Lasts ${p.months} month${p.months === 1 ? '' : 's'}`}>
-                  <Slider
+                <>
+                  <Field label={`Lasts ${p.months} month${p.months === 1 ? '' : 's'}`}>
+                    <Slider
+                      value={p.months}
+                      min={1}
+                      max={120}
+                      step={1}
+                      onChange={(months) => patchPeriod(p.id, { months })}
+                    />
+                  </Field>
+                  <NumberField
                     value={p.months}
                     min={1}
-                    max={120}
+                    max={1200}
                     step={1}
-                    onChange={(months) => patchPeriod(p.id, { months })}
+                    onChange={(months) => {
+                      commit();
+                      patchPeriod(p.id, { months });
+                    }}
                   />
-                </Field>
+                </>
               )}
             </div>
           ))}

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   amortise,
   compare,
+  effectivePayment,
+  solvePayment,
   formatTerm,
   monthlyRate,
   rateAtMonth,
@@ -29,7 +31,9 @@ const period = (months: number, annualRate: number): RatePeriod => ({
 
 const world = (over: Partial<LoanWorld> = {}): LoanWorld => ({
   principal: 500_000,
+  driver: 'payment',
   capitalPayment: 2_500,
+  targetMonths: 200,
   periods: [period(2, 1.09), period(0, 4)],
   conversion: 'nominal',
   interestHandling: 'paid',
@@ -346,6 +350,118 @@ describe('degenerate inputs', () => {
     const schedule = amortise(world({ periods: [] }));
     expect(schedule.totalInterest).toBe(0);
     expect(schedule.payoffMonth).toBe(200);
+  });
+});
+
+describe('working backwards from the term', () => {
+  /* The inverse problem: the borrower names the term and wants the payment.
+   * With the interest paid separately the balance falls linearly, so the
+   * answer is principal ÷ months exactly — which is the check that the
+   * bisection is solving what it claims to. */
+  it('reduces to principal ÷ months when the interest is paid', () => {
+    for (const months of [1, 12, 178, 200, 360]) {
+      const payment = solvePayment(world({ driver: 'term', targetMonths: months }));
+      expect(payment).toBeCloseTo(500_000 / months, 6);
+    }
+  });
+
+  it('hits the term it was given, to the month', () => {
+    for (const months of [24, 100, 178, 200, 400]) {
+      const w = world({ driver: 'term', targetMonths: months });
+      expect(amortise(w).payoffMonth).toBe(months);
+    }
+  });
+
+  it('answers a term given as fourteen years and ten months', () => {
+    // 14 × 12 + 10 = 178 months. £500,000 / 178 = £2,808.99 a month.
+    const w = world({ driver: 'term', targetMonths: 178 });
+    expect(effectivePayment(w)).toBeCloseTo(500_000 / 178, 6);
+    expect(effectivePayment(w)).toBeCloseTo(2_808.988764, 5);
+    const schedule = amortise(w);
+    expect(schedule.payoffMonth).toBe(178);
+    // Shorter term, less interest — and the closed form still applies because
+    // the balance is still linear.
+    const i = 0.04 / 12;
+    const early = (500_000 + (500_000 - 500_000 / 178)) * (0.0109 / 12);
+    expect(schedule.totalInterest).toBeLessThan(165_081.07);
+    expect(schedule.rows[0].interest).toBeCloseTo(500_000 * (0.0109 / 12), 6);
+    void early;
+    void i;
+  });
+
+  it('solves the compounding case too, where no formula inverts cleanly', () => {
+    const w = world({
+      driver: 'term',
+      targetMonths: 240,
+      interestHandling: 'capitalised',
+      periods: [period(0, 4)],
+    });
+    const payment = solvePayment(w);
+    expect(amortise(w).payoffMonth).toBe(240);
+
+    /* Cross-checked against the annuity formula, which does invert for a single
+     * rate: P = B·i / (1 − (1+i)^−N). The solver never sees this. */
+    const i = 0.04 / 12;
+    const analytic = (500_000 * i) / (1 - (1 + i) ** -240);
+    expect(payment).toBeCloseTo(analytic, 4);
+    // £3,029.90 a month, by the formula.
+    expect(payment).toBeCloseTo(3_029.9, 1);
+  });
+
+  it('solves it with a rate change partway through, where no formula applies at all', () => {
+    const w = world({
+      driver: 'term',
+      targetMonths: 240,
+      interestHandling: 'capitalised',
+      periods: [period(24, 1.09), period(0, 4)],
+    });
+    const payment = solvePayment(w);
+    expect(amortise(w).payoffMonth).toBe(240);
+    // Cheaper for two years, so the payment needed is below the flat-4% one.
+    const flat = solvePayment(world({ driver: 'term', targetMonths: 240, interestHandling: 'capitalised', periods: [period(0, 4)] }));
+    expect(payment).toBeLessThan(flat);
+    expect(payment).toBeGreaterThan(flat * 0.9);
+  });
+
+  it('takes an overpayment into account, which no closed form does', () => {
+    const w = world({ driver: 'term', targetMonths: 200, overpayment: 50_000, overpaymentMonth: 1 });
+    // £50,000 up front leaves £450,000 to spread over 200 months.
+    expect(solvePayment(w)).toBeCloseTo(450_000 / 200, 6);
+    expect(amortise(w).payoffMonth).toBe(200);
+  });
+
+  it('a shorter term costs more a month and less in total', () => {
+    const long = amortise(world({ driver: 'term', targetMonths: 240 }));
+    const short = amortise(world({ driver: 'term', targetMonths: 120 }));
+    expect(short.rows[0].capital).toBeGreaterThan(long.rows[0].capital);
+    expect(short.totalInterest).toBeLessThan(long.totalInterest);
+    expect(short.payoffMonth).toBe(120);
+    expect(long.payoffMonth).toBe(240);
+  });
+
+  it('ignores the typed payment entirely when the term is driving', () => {
+    const a = amortise(world({ driver: 'term', targetMonths: 100, capitalPayment: 1 }));
+    const b = amortise(world({ driver: 'term', targetMonths: 100, capitalPayment: 99_999 }));
+    expect(a.payoffMonth).toBe(100);
+    expect(b.payoffMonth).toBe(100);
+    expect(a.totalInterest).toBeCloseTo(b.totalInterest, 9);
+  });
+
+  it('and the typed term entirely when the payment is driving', () => {
+    const a = amortise(world({ driver: 'payment', targetMonths: 1 }));
+    const b = amortise(world({ driver: 'payment', targetMonths: 999 }));
+    expect(a.payoffMonth).toBe(200);
+    expect(b.payoffMonth).toBe(200);
+  });
+
+  it('wants nothing when there is nothing owed', () => {
+    expect(solvePayment(world({ driver: 'term', principal: 0, targetMonths: 60 }))).toBe(0);
+  });
+
+  it('clears it in one month if that is what is asked', () => {
+    const w = world({ driver: 'term', targetMonths: 1, periods: [period(0, 4)] });
+    expect(solvePayment(w)).toBeCloseTo(500_000, 4);
+    expect(amortise(w).payoffMonth).toBe(1);
   });
 });
 
