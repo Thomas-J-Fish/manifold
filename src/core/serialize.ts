@@ -13,6 +13,7 @@
 
 import {
   defaultGeometry,
+  defaultLoan,
   defaultOptimisation,
   defaultReactions,
   defaultSignals,
@@ -229,6 +230,7 @@ function loadTab(rawTab: unknown, index: number, warnings: string[]): TabState |
     reactions: sanitiseReactions(merged.reactions),
     thermodynamics: sanitiseThermo(merged.thermodynamics),
     geometry: sanitiseGeometry(merged.geometry),
+    loan: sanitiseLoan(merged.loan),
   };
 }
 
@@ -676,6 +678,53 @@ function sanitiseOptimisation(cfg: TabState['optimisation']): TabState['optimisa
     constraint: text(cfg.constraint, fallback.constraint),
     showGradients: flag(cfg.showGradients, true),
     showEquations: flag(cfg.showEquations, true),
+  };
+}
+
+const LOAN_VIEWS = new Set(['balance', 'monthly', 'cumulative', 'schedule']);
+const RATE_CONVERSIONS = new Set(['nominal', 'effective']);
+const INTEREST_HANDLING = new Set(['paid', 'capitalised']);
+
+function sanitiseLoan(cfg: TabState['loan']): TabState['loan'] {
+  const fallback = defaultLoan();
+  const pick = <T extends string>(v: unknown, allowed: Set<string>, dflt: T): T =>
+    allowed.has(text(v, '')) ? (v as T) : dflt;
+  const w: Record<string, unknown> = isObject(cfg.world) ? (cfg.world as unknown as Record<string, unknown>) : {};
+
+  const rawPeriods = Array.isArray(w.periods) ? w.periods : [];
+  const periods = rawPeriods.slice(0, 24).map((raw) => {
+    const p: Record<string, unknown> = isObject(raw) ? raw : {};
+    return {
+      id: text(p.id, uid('rate')),
+      // A negative or fractional number of months is not a stretch of time.
+      months: Math.max(0, Math.min(1200, Math.round(number(p.months, 0)))),
+      /* A rate below −100% a year would make (1 + r) negative and the twelfth
+       * root of it not a real number, so the whole schedule would come back as
+       * NaN and the chart would be empty with no explanation. */
+      annualRate: Math.max(-99, Math.min(1000, number(p.annualRate, 0))),
+      label: text(p.label, '').slice(0, 40),
+    };
+  });
+
+  return {
+    ...cfg,
+    view: pick(cfg.view, LOAN_VIEWS, fallback.view),
+    world: {
+      principal: Math.max(0, Math.min(1e12, number(w.principal, fallback.world.principal))),
+      capitalPayment: Math.max(0, Math.min(1e12, number(w.capitalPayment, fallback.world.capitalPayment))),
+      periods: periods.length ? periods : fallback.world.periods,
+      conversion: pick(w.conversion, RATE_CONVERSIONS, fallback.world.conversion),
+      interestHandling: pick(w.interestHandling, INTEREST_HANDLING, fallback.world.interestHandling),
+      overpayment: Math.max(0, Math.min(1e12, number(w.overpayment, 0))),
+      overpaymentMonth: Math.max(0, Math.min(1200, Math.round(number(w.overpaymentMonth, 0)))),
+      // The only guard against a loan that never repays running for ever.
+      maxMonths: Math.max(1, Math.min(12_000, Math.round(number(w.maxMonths, fallback.world.maxMonths)))),
+    },
+    showRateChanges: flag(cfg.showRateChanges, true),
+    showPayoff: flag(cfg.showPayoff, true),
+    compareEnabled: flag(cfg.compareEnabled, false),
+    comparePayment: Math.max(0, Math.min(1e12, number(cfg.comparePayment, fallback.comparePayment))),
+    currency: text(cfg.currency, fallback.currency).slice(0, 3),
   };
 }
 

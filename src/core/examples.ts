@@ -1438,6 +1438,106 @@ export const EXAMPLES: Example[] = [
     },
   },
 
+  // --------------------------------------------------------------------- loan
+
+  {
+    id: 'mortgage-piecewise',
+    mode: 'loan',
+    title: 'A mortgage when the fixed rate ends',
+    blurb:
+      '£500,000 owed, £2,500 of capital a month, and a rate that goes from 1.09% to 4% in two months. The balance does not notice; the interest bill nearly quadruples.',
+    build: () => {
+      const tab = makeTab('loan', 'Mortgage');
+      tab.loan = {
+        ...tab.loan,
+        view: 'balance',
+        world: {
+          ...tab.loan.world,
+          principal: 500_000,
+          capitalPayment: 2_500,
+          periods: [
+            { id: uid('rate'), months: 2, annualRate: 1.09, label: 'Fixed' },
+            { id: uid('rate'), months: 0, annualRate: 4, label: 'Reverting' },
+          ],
+          interestHandling: 'paid',
+          conversion: 'nominal',
+        },
+        showRateChanges: true,
+        showPayoff: true,
+      };
+      return tab;
+    },
+  },
+  {
+    id: 'overpayment-worth',
+    mode: 'loan',
+    title: 'What another £500 a month buys',
+    blurb:
+      'The same debt at £2,500 and at £3,000 a month, side by side. Thirty-three months and tens of thousands of pounds — and the slider prices any other figure.',
+    build: () => {
+      const tab = makeTab('loan', 'Overpay');
+      tab.loan = {
+        ...tab.loan,
+        view: 'balance',
+        world: {
+          ...tab.loan.world,
+          principal: 500_000,
+          capitalPayment: 2_500,
+          periods: [{ id: uid('rate'), months: 0, annualRate: 4, label: 'Fixed' }],
+          interestHandling: 'paid',
+        },
+        compareEnabled: true,
+        comparePayment: 3_000,
+      };
+      return tab;
+    },
+  },
+  {
+    id: 'interest-rolled-up',
+    mode: 'loan',
+    title: 'Interest that is not paid compounds',
+    blurb:
+      'The same £500,000 at 4%, with the interest added to the debt instead of paid. The term goes from 200 months to 331, and the interest bill roughly doubles.',
+    build: () => {
+      const tab = makeTab('loan', 'Compounding');
+      tab.loan = {
+        ...tab.loan,
+        view: 'balance',
+        world: {
+          ...tab.loan.world,
+          principal: 500_000,
+          capitalPayment: 2_500,
+          periods: [{ id: uid('rate'), months: 0, annualRate: 4, label: 'Fixed' }],
+          interestHandling: 'capitalised',
+        },
+      };
+      return tab;
+    },
+  },
+  {
+    id: 'never-clears',
+    mode: 'loan',
+    title: 'A payment that never clears the debt',
+    blurb:
+      '£500,000 at 4% costs £1,667 a month in interest alone. Pay £1,000 of capital against it and the balance climbs for ever — the mode says so rather than drawing a slow decline.',
+    build: () => {
+      const tab = makeTab('loan', 'Underwater');
+      tab.loan = {
+        ...tab.loan,
+        view: 'balance',
+        world: {
+          ...tab.loan.world,
+          principal: 500_000,
+          capitalPayment: 1_000,
+          periods: [{ id: uid('rate'), months: 0, annualRate: 4, label: 'Fixed' }],
+          interestHandling: 'capitalised',
+          maxMonths: 360,
+        },
+      };
+      return tab;
+    },
+  },
+
   // ----------------------------------------------------------------- geometry
 
   {

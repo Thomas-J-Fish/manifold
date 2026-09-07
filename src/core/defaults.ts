@@ -16,6 +16,7 @@ import {
   type QuantumConfig,
   type OptimisationConfig,
   type GeometryConfig,
+  type LoanConfig,
   type ReactionsConfig,
   type ThermoConfig,
   type SignalsConfig,
@@ -531,6 +532,39 @@ export function defaultOptimisation(): OptimisationConfig {
   };
 }
 
+export function defaultLoan(): LoanConfig {
+  /* A £500,000 balance at 2.5k a month, cheap for two months and then not.
+   *
+   * The interest is *paid* rather than capitalised, which is the arrangement
+   * where a fixed capital repayment sits alongside a separate interest bill —
+   * so the balance falls by exactly the capital payment and the rate decides
+   * the cost rather than the term. Switching the handling to capitalised turns
+   * it into an ordinary compounding mortgage, and the term moves a long way. */
+  return {
+    view: 'balance',
+    world: {
+      principal: 500_000,
+      capitalPayment: 2_500,
+      periods: [
+        { id: uid('rate'), months: 2, annualRate: 1.09, label: 'Fixed' },
+        // The final period runs to the end whatever its stated length.
+        { id: uid('rate'), months: 0, annualRate: 4, label: 'Reverting' },
+      ],
+      // A lender quoting 4% charges 4/12 % a month; AER would be slightly less.
+      conversion: 'nominal',
+      interestHandling: 'paid',
+      overpayment: 0,
+      overpaymentMonth: 0,
+      maxMonths: 1200,
+    },
+    showRateChanges: true,
+    showPayoff: true,
+    compareEnabled: false,
+    comparePayment: 3_000,
+    currency: '£',
+  };
+}
+
 export function defaultGeometry(): GeometryConfig {
   /* Opens on Euclid's very first proposition: two circles of radius AB centred
    * at A and B, and their crossing completes an equilateral triangle. It is
@@ -793,6 +827,8 @@ const VIEWPORT_BY_MODE: Record<TabMode, Viewport> = {
   // Square-ish and centred: a construction is a picture of a space, so the
   // scales are locked equal once the plot has measured itself.
   geometry: { xMin: -5, xMax: 5, yMin: -3.5, yMax: 3.5 },
+  // Months across, money up. Reframed from the schedule as soon as it runs.
+  loan: { xMin: 0, xMax: 200, yMin: 0, yMax: 520000 },
   thermodynamics: { xMin: 0, xMax: 1, yMin: 0, yMax: 1 },
 };
 
@@ -897,6 +933,7 @@ export function makeTab(mode: TabMode = 'graphing', name?: string): TabState {
     optimisation: defaultOptimisation(),
     reactions: defaultReactions(),
     geometry: defaultGeometry(),
+    loan: defaultLoan(),
     thermodynamics: defaultThermo(),
   };
 }
@@ -905,6 +942,7 @@ const NAME_BY_MODE: Record<TabMode, string> = {
   optimisation: 'Optimise',
   reactions: 'Reaction',
   geometry: 'Figure',
+  loan: 'Loan',
   thermodynamics: 'Gas',
   graphing: 'Graph',
   statistics: 'Distribution',

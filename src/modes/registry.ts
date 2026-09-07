@@ -26,6 +26,7 @@ import { OptimisationPanel, OptimisationSurface, optimisationCsv } from './Optim
 import { ReactionsPanel, ReactionsSurface, reactionsCsv } from './ReactionsMode';
 import { ThermodynamicsPanel, ThermodynamicsSurface, thermoCsv } from './ThermodynamicsMode';
 import { GeometryPanel, GeometrySurface, geometryCsv } from './GeometryMode';
+import { LoanPanel, LoanSurface, loanCsv } from './LoanMode';
 
 export interface ModeModule {
   Panel: ComponentType<{ tab: TabState }>;
@@ -53,4 +54,5 @@ export const MODE_REGISTRY: Record<TabMode, ModeModule> = {
   reactions: { Panel: ReactionsPanel, Surface: ReactionsSurface, toCsv: reactionsCsv },
   thermodynamics: { Panel: ThermodynamicsPanel, Surface: ThermodynamicsSurface, toCsv: thermoCsv },
   geometry: { Panel: GeometryPanel, Surface: GeometrySurface, toCsv: geometryCsv },
+  loan: { Panel: LoanPanel, Surface: LoanSurface, toCsv: loanCsv },
 };

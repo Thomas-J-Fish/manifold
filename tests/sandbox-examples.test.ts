@@ -43,6 +43,7 @@ import {
   type GasWorld,
 } from '../src/core/physics/thermo';
 import type { ThermoConfig } from '../src/core/types';
+import { amortise, compare } from '../src/core/finance/loan';
 
 /** The gas the thermodynamics mode builds from a tab's settings. */
 const gasWorld = (cfg: ThermoConfig): GasWorld => ({
@@ -792,5 +793,65 @@ describe('thermodynamics examples', () => {
     // No cycle can beat Carnot between the same two temperatures.
     const temps = result.legs.flatMap((l) => l.points.map((p) => p.t));
     expect(result.efficiency).toBeLessThan(carnotEfficiency(Math.min(...temps), Math.max(...temps)));
+  });
+});
+
+describe('loan examples', () => {
+  const examples = EXAMPLES.filter((e) => e.mode === 'loan');
+
+  it('there are some', () => {
+    expect(examples.length).toBeGreaterThanOrEqual(3);
+  });
+
+  for (const example of examples) {
+    it(`${example.title} produces a finite schedule`, () => {
+      const schedule = amortise(example.build().loan.world);
+      expect(schedule.rows.length).toBeGreaterThan(0);
+      for (const row of schedule.rows) {
+        expect(Number.isFinite(row.interest)).toBe(true);
+        expect(Number.isFinite(row.closingBalance)).toBe(true);
+        expect(row.closingBalance).toBeGreaterThanOrEqual(0);
+      }
+    });
+  }
+
+  it('gets the headline mortgage right, to the penny', () => {
+    const cfg = EXAMPLES.find((e) => e.id === 'mortgage-piecewise')!.build().loan;
+    const schedule = amortise(cfg.world);
+    /* £500,000 at £2,500 a month with the interest paid separately: the
+     * balance falls linearly, so 200 months exactly. Two months at 1.09% then
+     * 198 at 4%, both summed in closed form and neither computed by the code
+     * being tested. */
+    expect(schedule.payoffMonth).toBe(200);
+    const early = (500_000 + 497_500) * (0.0109 / 12);
+    const late = (198 * 495_000 - 2_500 * ((197 * 198) / 2)) * (0.04 / 12);
+    expect(schedule.totalInterest).toBeCloseTo(early + late, 6);
+    expect(schedule.totalInterest).toBeCloseTo(165_081.0625, 4);
+    // The rate change is the thing worth seeing: month 2 costs £451, month 3
+    // costs £1,650, and nothing about the balance explains the jump.
+    expect(schedule.rows[1].interest).toBeCloseTo(497_500 * (0.0109 / 12), 6);
+    expect(schedule.rows[2].interest).toBeCloseTo(495_000 * (0.04 / 12), 6);
+    expect(schedule.rows[2].interest / schedule.rows[1].interest).toBeGreaterThan(3.6);
+  });
+
+  it('prices the overpayment example the way arithmetic does', () => {
+    const cfg = EXAMPLES.find((e) => e.id === 'overpayment-worth')!.build().loan;
+    const base = amortise(cfg.world);
+    const faster = amortise({ ...cfg.world, capitalPayment: cfg.comparePayment });
+    expect(base.payoffMonth).toBe(200);
+    // 500,000 / 3,000 = 166.7, so 167 months.
+    expect(faster.payoffMonth).toBe(167);
+    const saved = compare(base, faster);
+    expect(saved.monthsSaved).toBe(33);
+    expect(saved.interestSaved).toBeGreaterThan(25_000);
+  });
+
+  it('shows the underwater example really is underwater', () => {
+    const cfg = EXAMPLES.find((e) => e.id === 'never-clears')!.build().loan;
+    const schedule = amortise(cfg.world);
+    expect(schedule.neverRepays).toBe(true);
+    expect(schedule.payoffMonth).toBeNull();
+    // The balance is higher at the end than at the start, not merely slow.
+    expect(schedule.rows[schedule.rows.length - 1].closingBalance).toBeGreaterThan(500_000);
   });
 });

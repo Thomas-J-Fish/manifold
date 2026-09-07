@@ -704,6 +704,42 @@ function step(label) {
   }
   await page.screenshot({ path: path.join(SHOT_DIR, '24-geometry.png') });
 
+  step('Loan interest');
+  await selectMode(page, 'loan');
+  await page.waitForTimeout(1300);
+
+  {
+    /* £500,000 at £2,500 of capital a month with the interest paid separately:
+     * the balance falls linearly, so 200 months exactly, and the interest is
+     * two months at 1.09% plus 198 at 4% — £165,081.06, worked out in closed
+     * form and not by the code being checked. */
+    const text = await page.locator('body').innerText();
+    check('the loan clears in 200 months', /Clear in\s+200 months/.test(text), text.slice(0, 400));
+    check('and reads as 16 years 8 months', /16 years 8 months/.test(text), 'not shown');
+    const interest = /Total interest\s+£([\d,]+\.\d\d)/.exec(text);
+    check(
+      'the total interest is £165,081.06',
+      interest && Math.abs(Number(interest[1].replace(/,/g, '')) - 165_081.06) < 0.02,
+      interest ? interest[1] : text.slice(0, 500),
+    );
+    // The whole point of the piecewise rate: the bill quadruples in month 3.
+    const jump = /Interest jumps to\s+£([\d,]+\.\d\d)/.exec(text);
+    check(
+      'and the interest jumps when the fixed rate ends',
+      jump && Math.abs(Number(jump[1].replace(/,/g, '')) - 1650) < 1,
+      jump ? jump[1] : 'not shown',
+    );
+    check('no error boundary', !/could not start/i.test(text));
+
+    // The schedule view is a table rather than a canvas, so it is worth its
+    // own check that it actually renders rows.
+    await page.click('[role="tab"]:has-text("Schedule")');
+    await page.waitForTimeout(700);
+    const rows = await page.locator('tbody tr').count();
+    check('the schedule lists months', rows > 10, `${rows} rows`);
+  }
+  await page.screenshot({ path: path.join(SHOT_DIR, '25-loan.png') });
+
   /* ---- the interface chrome actually works.
    *
    * Three bugs that every existing check sailed past, because each one is about

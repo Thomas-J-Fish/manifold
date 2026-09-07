@@ -30,7 +30,8 @@ export type TabMode =
   | 'optimisation'
   | 'reactions'
   | 'thermodynamics'
-  | 'geometry';
+  | 'geometry'
+  | 'loan';
 
 /* Subject areas, for the two-level pickers.
  *
@@ -45,7 +46,7 @@ export type TabMode =
  * places it is filed under the subject a user would look in *first*, and
  * moving one is a single edit to its entry below.
  */
-export type ModeCategory = 'mathematics' | 'physics' | 'chemistry' | 'data';
+export type ModeCategory = 'mathematics' | 'physics' | 'chemistry' | 'data' | 'finance';
 
 export interface CategoryInfo {
   id: ModeCategory;
@@ -73,6 +74,11 @@ export const CATEGORIES: CategoryInfo[] = [
     id: 'data',
     name: 'Data & Computation',
     blurb: 'Getting an answer out of measurements: fitting, signals and optimisation.',
+  },
+  {
+    id: 'finance',
+    name: 'Finance',
+    blurb: 'Money over time: what a debt costs, and what changes it.',
   },
 ];
 
@@ -239,6 +245,15 @@ export const MODES: ModeInfo[] = [
     blurb: 'Reaction networks integrated as ODEs, equilibria you can perturb, titration curves and Arrhenius.',
     surface: 'custom',
     supportsTimeline: true,
+  },
+  {
+    id: 'loan',
+    category: 'finance',
+    name: 'Loan Interest',
+    short: 'Loan',
+    blurb: 'A debt month by month: the balance, the interest each month, and what it all adds up to.',
+    surface: '2d',
+    supportsTimeline: false,
   },
   {
     id: 'geometry',
@@ -716,6 +731,19 @@ export interface GeometryConfig {
   showConicDetail: boolean;
 }
 
+export interface LoanConfig {
+  view: 'balance' | 'monthly' | 'cumulative' | 'schedule';
+  world: import('./finance/loan').LoanWorld;
+  /** Mark where a rate changes, and where the loan clears. */
+  showRateChanges: boolean;
+  showPayoff: boolean;
+  /** A second payment level, drawn alongside, to price an overpayment. */
+  compareEnabled: boolean;
+  comparePayment: number;
+  /** Currency prefix for the axis and the readouts. Cosmetic only. */
+  currency: string;
+}
+
 export interface ReactionsConfig {
   view: 'kinetics' | 'equilibrium' | 'titration' | 'arrhenius';
   reactions: import('./chemistry/reactions').Reaction[];
@@ -834,6 +862,7 @@ export interface TabState {
   reactions: ReactionsConfig;
   thermodynamics: ThermoConfig;
   geometry: GeometryConfig;
+  loan: LoanConfig;
 }
 
 export interface ProjectMeta {

@@ -205,7 +205,7 @@ async function main() {
   await page.keyboard.press('Escape');
 
   step('Every mode opens');
-  for (const id of ['statistics', 'linear-algebra', 'monte-carlo', 'calculus', 'dynamics', 'fields', 'fitting', 'circuits', 'quantum', 'chemistry', 'waves', 'signals', 'optimisation', 'reactions', 'thermodynamics', 'geometry']) {
+  for (const id of ['statistics', 'linear-algebra', 'monte-carlo', 'calculus', 'dynamics', 'fields', 'fitting', 'circuits', 'quantum', 'chemistry', 'waves', 'signals', 'optimisation', 'reactions', 'thermodynamics', 'geometry', 'loan']) {
     await selectMode(page, id);
     const result = await canvasHasContent(page);
     check(`${id} renders`, result.ok, result.reason);
@@ -292,7 +292,7 @@ async function main() {
     const categoryIds = await page.locator('[data-example-category]').evaluateAll((els) =>
       els.map((e) => e.getAttribute('data-example-category')),
     );
-    check('there is a group for every subject', categoryIds.length === 4, `${categoryIds.length} subjects`);
+    check('there is a group for every subject', categoryIds.length === 5, `${categoryIds.length} subjects`);
     check(
       'and no examples are on show before a subject is opened',
       (await page.locator('button[data-example]').count()) === 0,
@@ -334,7 +334,7 @@ async function main() {
         await collapse(`[data-example-group="${mode}"]`);
       }
     }
-    check('there is a group for every mode', groups === 18, `${groups} groups`);
+    check('there is a group for every mode', groups === 19, `${groups} groups`);
     check('every mode has at least three examples', thin.length === 0, thin.join(' '));
 
     // And one of them actually loads into a working tab.

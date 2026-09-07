@@ -21,6 +21,7 @@ const MODE_GLYPH: Record<TabMode, string> = {
   optimisation: '◹',
   reactions: '⇌',
   geometry: '△',
+  loan: '£',
   thermodynamics: '♨',
 };
 

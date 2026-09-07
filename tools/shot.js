@@ -95,8 +95,19 @@ function serve() {
     await page.waitForTimeout(1400);
   } else if (mode !== 'graphing') {
     await page.click('[data-testid="new-tab"]');
-    await page.waitForSelector(`button[data-mode="${mode}"]`, { timeout: 8000 });
-    await page.click(`button[data-mode="${mode}"]`);
+    /* Two-level picker: a subject, then the modes inside it. Only one subject
+     * is open at a time, so open each heading in turn until the mode appears
+     * rather than teaching this tool which subject each mode lives in. */
+    const button = `button[data-mode="${mode}"]`;
+    if (!(await page.locator(button).count())) {
+      for (const category of await page.locator('[data-category]').all()) {
+        await category.click();
+        await page.waitForTimeout(80);
+        if (await page.locator(button).count()) break;
+      }
+    }
+    await page.waitForSelector(button, { timeout: 8000 });
+    await page.click(button);
     await page.waitForTimeout(1000);
   }
 

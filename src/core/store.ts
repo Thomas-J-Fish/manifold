@@ -43,6 +43,7 @@ import type {
   SignalsConfig,
   OptimisationConfig,
   GeometryConfig,
+  LoanConfig,
   ReactionsConfig,
   ThermoConfig,
   StatisticsConfig,
@@ -166,6 +167,7 @@ interface AppState {
   setOptimisation: (patch: Partial<OptimisationConfig>) => void;
   setReactions: (patch: Partial<ReactionsConfig>) => void;
   setGeometry: (patch: Partial<GeometryConfig>) => void;
+  setLoan: (patch: Partial<LoanConfig>) => void;
   setThermo: (patch: Partial<ThermoConfig>) => void;
 
   // --- chrome
@@ -670,6 +672,15 @@ export const useStore = create<AppState>((set, get) => ({
       project: replaceTab(s.project, s.project.activeTabId, (t) => ({
         ...t,
         optimisation: { ...t.optimisation, ...patch },
+      })),
+      dirty: true,
+    })),
+
+  setLoan: (patch) =>
+    set((s) => ({
+      project: replaceTab(s.project, s.project.activeTabId, (t) => ({
+        ...t,
+        loan: { ...t.loan, ...patch },
       })),
       dirty: true,
     })),
